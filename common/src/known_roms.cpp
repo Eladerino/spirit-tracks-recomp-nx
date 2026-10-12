@@ -28,14 +28,14 @@ std::string crc32_hex(uint32_t crc) {
 
 // Spirit Tracks (USA). The clean dump is the one the zeldaret/st decomp's config (frontend/config/bkie) describes. The
 // D-pad and D-pad + QoL patches (d0k3, Greiga Master / StraDaMa, v0.9c) are made from it by the build scripts
-// (tools/bps_patch.py); until their SHA-1s are listed they are known by the CRC-32 and size their patches state. Each
-// one is recompiled on its own: a game module only runs with the ROM it was built from.
+// (tools/bps_patch.py). D-pad + QoL is listed by SHA-1; D-pad only is known by the CRC-32 and size its patch states
+// until its SHA-1 is listed. Each one is recompiled on its own: a game module only runs with the ROM it was built from.
 static const KnownRom kKnownRoms[] = {
     {"1f0921b5e99db9d92d24710f1b004e4f3c997b73", "38392357", 134217728, "BKIE", "USA",
      "The Legend of Zelda - Spirit Tracks (USA, Australia) (En,Fr,Es)", true},
     {"", "a966458d", 94096060, "BKIE", "USA (D-pad patch)",
      "The Legend of Zelda - Spirit Tracks (USA) (D-pad patch v0.9c)", true},
-    {"", "44c7c45b", 94097260, "BKIE", "USA (D-pad + QoL patch)",
+    {"6896c1db2b3a725cb991f711a875fc2228b7620e", "44c7c45b", 94097260, "BKIE", "USA (D-pad + QoL patch)",
      "The Legend of Zelda - Spirit Tracks (USA) (D-pad + QoL patch v0.9c)", true},
 };
 

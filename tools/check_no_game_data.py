@@ -38,6 +38,7 @@ FORBIDDEN_MAGICS = [
 # SHA-1 of known game dumps (verification facts, not data).
 KNOWN_ROM_SHA1 = {
     "1f0921b5e99db9d92d24710f1b004e4f3c997b73",  # Spirit Tracks (USA, Australia)
+    "6896c1db2b3a725cb991f711a875fc2228b7620e",  # Spirit Tracks (USA), D-pad + QoL patch v0.9c
 }
 
 # Marker the recompiler writes at the top of every generated file.

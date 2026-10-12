@@ -13,7 +13,7 @@ for Spirit Tracks's. Build on the home PC with `scripts\RUN-ALL.ps1` (see `scrip
 | `functions.txt` | 32,522 functions from zeldaret/st (`config/usa/arm9`, commit 1f284ce) by `tools/import_dsd.py`: main 2,153, ITCM 227, 114 overlays (ov097 and ov100 have none); 42 DS Protect functions flagged `!dsprot` |
 | `hooks.txt` | OS_Save/Load/InitContext, OS_IrqHandler (below), and the six DSProt_* wrappers |
 | `st_hooks.cpp` | OS_IRQTable / ThreadSwitch addresses; `st_dsprot_detect` (r0 = 0) and `st_dsprot_detect_not` (calls the callback, r0 = 1) |
-| ROMs | clean USA by SHA-1; the D-pad and D-pad + QoL patches (made locally by `tools/bps_patch.py`) by CRC-32 + size until their SHA-1s are known (`common/src/known_roms.cpp`) |
+| ROMs | clean USA and the D-pad + QoL patch (`6896c1db…`) by SHA-1; the D-pad-only patch (both made locally by `tools/bps_patch.py`) by CRC-32 + size until its SHA-1 is known (`common/src/known_roms.cpp`) |
 | Engine | `NTR_ABI_VERSION` 2: `NtrGameInfo.rom_sha1`, the SHA-1 of the ROM the module was recompiled from; the program refuses another ROM (a patched ROM's code is not the clean one's) |
 | Save | 8 Mbit flash (1 MB): melonDS's ROM list gives BKIE save type 7; the launcher imports 1 MB saves |
 | Names | SpiritTracks.exe, st_game.dll / libst_game.so, com.strecomp.st (StInput, StMenu), ST_* CMake variables, logcat tag strecomp |
@@ -69,6 +69,6 @@ recompressed ARM9) and the file layout all change. The decomp's config describes
 ## Next
 
 1. First home build: `RUN-ALL.ps1` (D-pad + QoL), then `RUN-ALL.ps1 -Variant clean`; compare both `recomp_report.txt`.
-2. List the patched ROMs' SHA-1s (printed by `rominfo`, or in the error box) in `known_roms.cpp` and the guard.
+2. List the D-pad-only ROM's SHA-1 (D-pad + QoL is done) (printed by `rominfo`, or in the error box) in `known_roms.cpp` and the guard.
 3. Android: `RUN-ANDROID.ps1`.
 4. Screenshots for the README.
