@@ -54,6 +54,12 @@
 namespace fs = std::filesystem;
 using st::Layout;
 
+#ifdef __ANDROID__
+namespace melonDS {
+extern int FfccDebug3D;  // DEBUG (temporary): GPU renderer experiments (third_party/CMakeLists.txt)
+}
+#endif
+
 namespace st::pad {
 std::atomic<uint32_t> held{0};
 std::atomic<bool> blow{false};
@@ -913,7 +919,23 @@ int main(int argc, char** argv) {
     bool finger_down = false;
     float finger_x = 0, finger_y = 0;  // window pixels
     std::vector<uint32_t> pixels(size_t(kW) * kH * 2);
+#ifdef __ANDROID__
+    uint64_t debug3d_checked = 0;
+#endif
     while (!shared.game_done) {
+#ifdef __ANDROID__
+        // DEBUG (temporary): GPU renderer experiments, a number in files/debug3d.txt read once a second (set over adb,
+        // see ST-PORT.md "GPU dots"): 1 no fog pass, 2 no fog where the depth is the far plane, 4 no line polygons.
+        if (const uint64_t now = SDL_GetTicks(); now - debug3d_checked >= 1000) {
+            debug3d_checked = now;
+            int want = 0;
+            if (std::ifstream f(data_dir / "debug3d.txt"); f) f >> want;
+            if (want != melonDS::FfccDebug3D) {
+                melonDS::FfccDebug3D = want;
+                std::fprintf(stderr, "debug3d: %d\n", want);
+            }
+        }
+#endif
         SDL_Event e;
         int win_pw = 1, win_ph = 1;
         SDL_GetWindowSizeInPixels(window, &win_pw, &win_ph);

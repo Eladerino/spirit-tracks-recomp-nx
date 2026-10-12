@@ -101,6 +101,17 @@ ffcc_patch(gpu3d_gl_src GPU3D_OpenGL.cpp "    if (CurShaderID == flags) return;
     }
     glUniform1i(glGetUniformLocation(RenderShader[flags], \"uSmoothTex\"), FfccSmoothTex); // ffcc patch
 ")
+# DEBUG (temporary): FfccDebug3D, set on the phone from files/debug3d.txt (frontend/src/main.cpp), to find the cyan dots of
+# Spirit Tracks's GPU renderer on a Mali GPU: 1 skips the fog pass, 2 makes the fog shader skip far-plane pixels (the
+# GLES shader only, gles_shader_fixes.cmake), 4 skips line polygons.
+ffcc_patch(gpu3d_gl_src GPU3D_OpenGL.cpp "extern int FfccSmoothTex; // ffcc patch\n"
+  "extern int FfccSmoothTex; // ffcc patch\nint FfccDebug3D = 0; // ffcc patch: debug\n")
+ffcc_patch(gpu3d_gl_src GPU3D_OpenGL.cpp "    glDrawElements(rp->PrimType, rp->NumIndices,"
+  "    if (rp->PrimType == GL_LINES && (FfccDebug3D & 4)) return 1; // ffcc patch: debug\n    glDrawElements(rp->PrimType, rp->NumIndices,")
+ffcc_patch(gpu3d_gl_src GPU3D_OpenGL.cpp "    SetupPolygonTexture(rp);\n    glDrawElements(primtype, numindices,"
+  "    SetupPolygonTexture(rp);\n    if (primtype == GL_LINES && (FfccDebug3D & 4)) return numpolys; // ffcc patch: debug\n    glDrawElements(primtype, numindices,")
+ffcc_patch(gpu3d_gl_src GPU3D_OpenGL.cpp "        if (GPU3D.RenderDispCnt & (1<<7))\n        {\n            // fog\n\n            glUseProgram(FinalPassFogShader);\n"
+  "        if ((GPU3D.RenderDispCnt & (1<<7)) && !(FfccDebug3D & 1)) // ffcc patch: debug\n        {\n            // fog\n\n            glUseProgram(FinalPassFogShader);\n            glUniform1i(glGetUniformLocation(FinalPassFogShader, \"uFfccDebug\"), FfccDebug3D); // ffcc patch: debug\n")
 ffcc_write_patched(gpu3d_gl_src ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/GPU3D_OpenGL.cpp)
 
 # GPU_OpenGL.cpp: with FfccWideExtra set, the final output (both screens' layers) is (256 + 2 * extra) pixels wide: engine

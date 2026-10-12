@@ -60,6 +60,24 @@ recompressed ARM9) and the file layout all change. The decomp's config describes
   listed functions) is found (`recomp_report.txt` in each build folder). If needed, add the hack's functions to a
   variant-specific list (the recompiler's discovery already follows BL targets).
 
+## GPU dots (open)
+
+On a Pixel 8 (Mali-G715, OpenGL ES 3.2) the GPU renderer shows single cyan pixels along polygon edges (Link's house);
+the software renderer, the PC's GPU renderer (NVIDIA) and Phantom Hourglass on the same phone are clean. The colour
+(DS 19,31,29) is the game's fog colour: the house turns on DS fog (DISP3DCNT 0x6B9, fog offset 0xFA, shift 6, density
+ramping to 0x7F), so those pixels are fogged as if they were at the far plane. Not shader precision (every GLES shader is
+already highp).
+
+A temporary debug switch finds the cause: the app reads a number from `files/debug3d.txt` once a second and logs
+`debug3d: N` (bits: 1 no fog pass; 2 no fog where the depth is the far plane, GLES fog shader only; 4 no line
+polygons). Set it over USB while the game runs (0 is normal):
+
+    adb shell "run-as com.strecomp.st sh -c 'echo 1 > files/debug3d.txt'"
+
+1 should remove the dots (confirms the fog); 2 removing them means those pixels hold the far-plane depth; 4 removing them
+means line polygons write that depth. Remove the switch (frontend/src/main.cpp, third_party/CMakeLists.txt,
+third_party/gles_shader_fixes.cmake: every "DEBUG (temporary)") with the fix.
+
 ## History
 
 - 2026-10-12: project created from ph-recomp; config imported from zeldaret/st; hooks matched; DS Protect hooks;
