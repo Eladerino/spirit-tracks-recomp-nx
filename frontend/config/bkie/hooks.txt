@@ -1,0 +1,23 @@
+# Recompiler hooks for BKIE (Spirit Tracks, USA).
+# Format: <module> <address> replace|before|instead <c_function>
+#   replace: the recompiled body is replaced by a call to the C function.
+#   before:  the C function is called on entry, then the recompiled body runs.
+#   instead: the C function (returning int) is called on entry; the recompiled body runs if it returns 0.
+# The decomp leaves these NitroSDK functions unnamed (OS_func_0062..0064, func_01ffbd70); each was matched to Phantom
+# Hourglass's by size, order and literals (ST-PORT.md).
+
+# NitroSDK thread context switches: guest threads run on host fibers (runtime/src/nitro.cpp).
+main 020270f8 replace ntr_nitro_save_context   # OS_SaveContext (OS_func_0063)
+main 02027144 replace ntr_nitro_load_context   # OS_LoadContext (OS_func_0064)
+main 0202708c replace ntr_nitro_init_context   # OS_InitContext (OS_func_0062)
+
+# IRQ dispatch: enters OS_IrqHandler_ThreadSwitch explicitly (frontend/src/st_hooks.cpp).
+itcm 01ffbd70 replace st_os_irq_handler        # OS_IrqHandler
+
+# DS Protect (overlay 1, encrypted in the ROM): report a genuine cartridge (frontend/src/st_hooks.cpp).
+ov001 020c0e14 replace st_dsprot_detect        # DSProt_DetectFlashcart
+ov001 020c0e8c replace st_dsprot_detect_not    # DSProt_DetectNotFlashcart
+ov001 020c0f04 replace st_dsprot_detect        # DSProt_DetectEmulator
+ov001 020c0f7c replace st_dsprot_detect_not    # DSProt_DetectNotEmulator
+ov001 020c0ff4 replace st_dsprot_detect        # DSProt_DetectDummy
+ov001 020c106c replace st_dsprot_detect_not    # DSProt_DetectNotDummy

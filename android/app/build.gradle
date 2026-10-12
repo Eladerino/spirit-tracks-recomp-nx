@@ -1,0 +1,61 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The game's C comes from a PC build (2-BUILD.ps1: build/release/recomp_generated); SDL's source from the same build.
+def repo = projectDir.parentFile.parentFile
+def slashes = { String p -> p.replace('\\', '/') }  // (CMake reads backslashes as escapes)
+def generated = slashes(project.findProperty('stGeneratedDir') ?: new File(repo, 'build/release/recomp_generated').path)
+def sdlSource = slashes(project.findProperty('stSdlSource') ?: new File(repo, 'build/release/_deps/sdl3-src').path)
+// The CMake that local.properties' cmake.dir points at (5-BUILD-ANDROID.ps1 passes its version): the project needs 3.28+.
+def cmakeVersion = project.findProperty('stCmakeVersion') ?: '3.31.6'
+def ninja = project.findProperty('stNinja')
+// The ROM the game's C was recompiled from (5-BUILD-ANDROID.ps1 passes it): the launcher takes only that ROM.
+def romSha1 = project.findProperty('stRomSha1') ?: ''
+def romVariant = project.findProperty('stRomVariant') ?: 'USA'
+
+android {
+    namespace = "com.strecomp.st"
+    compileSdkVersion 35
+    ndkVersion = "28.2.13676358"
+    defaultConfig {
+        applicationId "com.strecomp.st"
+        minSdkVersion 26
+        targetSdkVersion 35
+        versionCode 1
+        versionName "0.1.0"
+        buildConfigField "String", "ROM_SHA1", "\"${romSha1}\""
+        buildConfigField "String", "ROM_VARIANT", "\"${romVariant}\""
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_STL=c++_static", "-DANDROID_PLATFORM=android-26",
+                        "-DFFCC_BUILD_TESTS=OFF", "-DST_GENERATED_DIR=${generated}",
+                        "-DFETCHCONTENT_SOURCE_DIR_SDL3=${sdlSource}", "-DFETCHCONTENT_FULLY_DISCONNECTED=ON"
+                if (ninja) arguments "-DCMAKE_MAKE_PROGRAM=${slashes(ninja)}"
+                abiFilters 'arm64-v8a'
+                targets 'main', 'st_game'
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            // The game and the engine are always optimised (CMake), so the debug APK plays at full speed.
+            externalNativeBuild { cmake { arguments "-DCMAKE_BUILD_TYPE=Release" } }
+        }
+        release {
+            minifyEnabled false
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path '../../CMakeLists.txt'
+            version cmakeVersion
+        }
+    }
+    buildFeatures {
+        buildConfig true
+    }
+    lint {
+        abortOnError = false
+    }
+}
