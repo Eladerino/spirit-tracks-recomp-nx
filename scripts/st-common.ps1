@@ -27,6 +27,8 @@ $Variants = @{
 if (-not $Variants.ContainsKey($Variant)) { Write-Host "unknown variant '$Variant' (qol, dpad or clean)" -ForegroundColor Red; exit 1 }
 $V = $Variants[$Variant]
 $CleanSha1 = '1f0921b5e99db9d92d24710f1b004e4f3c997b73'   # Legend of Zelda, The - Spirit Tracks (USA, Australia) (En,Fr,Es).nds
+# USA Rev 1 is the same size but different code: zeldaret/st and the D-pad patches only cover Rev 0, so it is refused.
+$Rev1Sha1 = '9953bce6ce32c35d084300c32b555b40aa013047'    # Legend of Zelda, The - Spirit Tracks (USA) (En,Fr,Es) (Rev 1).nds
 $CleanSize = 134217728
 # Where the patches are looked for: the patch's own folder as it unzips, or the workspace itself.
 $PatchDirs = @((Join-Path $Root 'loz_st_dpad_qol-v0.9c'), $Root)
@@ -101,8 +103,11 @@ function Find-Python {
 function Find-CleanRom {
     $candidates = @(Get-ChildItem -Path $Root, $PatchedDir -Filter '*.nds' -File -ErrorAction SilentlyContinue |
                     Where-Object { $_.Length -eq $CleanSize })
+    $script:Rev1Rom = $null
     foreach ($c in $candidates) {
-        if ((Get-FileHash -Algorithm SHA1 -LiteralPath $c.FullName).Hash.ToLower() -eq $CleanSha1) { return $c.FullName }
+        $h = (Get-FileHash -Algorithm SHA1 -LiteralPath $c.FullName).Hash.ToLower()
+        if ($h -eq $CleanSha1) { return $c.FullName }
+        if ($h -eq $Rev1Sha1) { $script:Rev1Rom = $c.FullName }
     }
     return $null
 }
@@ -137,6 +142,7 @@ function Find-Rom {
     $clean = Find-CleanRom
     if (-not $clean) {
         $msg = "no clean Spirit Tracks (USA) dump in $Root (SHA-1 $CleanSha1, $CleanSize bytes)$(if ($Variant -ne 'clean') { ', and no ROM already patched to this variant (CRC-32 ' + $V.Crc + ')' }): copy yours there, any file name"
+        if ($script:Rev1Rom) { $msg = "$($script:Rev1Rom) is the USA Rev 1 ROM (SHA-1 $Rev1Sha1). This port needs USA Rev 0, usually named '(USA, Australia) (En,Fr,Es)' without 'Rev 1' (SHA-1 $CleanSha1): the decomp's symbols and the D-pad patches only match Rev 0. Copy that one into $Root" }
         if ($DryRun) { Warn $msg; $clean = Join-Path $Root 'your-spirit-tracks-usa.nds' } else { Fail $msg }
     } else {
         Step "clean dump: $clean"
