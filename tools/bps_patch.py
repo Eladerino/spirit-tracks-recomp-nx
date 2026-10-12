@@ -4,6 +4,7 @@
     python tools/bps_patch.py <source.nds> <patch.bps> <output.nds>
     python tools/bps_patch.py --info <patch.bps>
     python tools/bps_patch.py --check <patched.nds> <patch.bps>     (is this the patch's output? exit 0 if so)
+    python tools/bps_patch.py --crc32 <file>                         (print its CRC-32, 8 hex digits)
 
 Used by the build scripts to make the D-pad / D-pad + QoL variants of Spirit Tracks from your clean USA dump, in the
 workspace (never in the repository). The source and target CRC-32s stored in the patch are verified, so a wrong
@@ -92,10 +93,14 @@ def apply(source: bytes, patch: bytes) -> bytes:
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--info", action="store_true", help="print the patch's sizes and CRC-32s only")
+    ap.add_argument("--crc32", action="store_true", help="print a file's CRC-32 only")
     ap.add_argument("--check", action="store_true", help="check that a file is this patch's output (size and CRC-32)")
     ap.add_argument("files", nargs="+")
     a = ap.parse_args(argv)
     try:
+        if a.crc32:
+            print(f"{zlib.crc32(Path(a.files[0]).read_bytes()) & 0xFFFFFFFF:08x}")
+            return 0
         if a.info:
             h = read_header(Path(a.files[0]).read_bytes())
             print(f"source {h['source_size']} bytes crc32 {h['source_crc32']:08x}")

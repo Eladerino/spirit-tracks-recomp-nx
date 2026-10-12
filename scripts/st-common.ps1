@@ -19,10 +19,10 @@ if (-not $Variant) { $Variant = 'qol' }
 $Variant = "$Variant".ToLower()
 $Variants = @{
     'qol'   = @{ Label = 'USA, D-pad + QoL patch v0.9c'; Preset = 'release'; Game = 'SpiritTracks'
-                 Patch = 'loz_st_dpad_qol-0.9c-ua.bps'; Size = 94097260 }
+                 Patch = 'loz_st_dpad_qol-0.9c-ua.bps'; Size = 94097260; Crc = '44c7c45b' }
     'dpad'  = @{ Label = 'USA, D-pad patch v0.9c'; Preset = 'release-dpad'; Game = 'SpiritTracks-DPad'
-                 Patch = 'dpadonly\loz_st_dpad_0.9c-ua.bps'; Size = 94096060 }
-    'clean' = @{ Label = 'USA, clean'; Preset = 'release-clean'; Game = 'SpiritTracks-Clean'; Patch = ''; Size = 134217728 }
+                 Patch = 'dpadonly\loz_st_dpad_0.9c-ua.bps'; Size = 94096060; Crc = 'a966458d' }
+    'clean' = @{ Label = 'USA, clean'; Preset = 'release-clean'; Game = 'SpiritTracks-Clean'; Patch = ''; Size = 134217728; Crc = '38392357' }
 }
 if (-not $Variants.ContainsKey($Variant)) { Write-Host "unknown variant '$Variant' (qol, dpad or clean)" -ForegroundColor Red; exit 1 }
 $V = $Variants[$Variant]
@@ -113,12 +113,30 @@ function Find-Patch {
     }
     return $null
 }
-# The ROM of the chosen variant: the clean dump itself, or the patched copy made from it in st-roms\ (made once by
-# tools\bps_patch.py, which checks the patch's CRC-32s; the clean dump is only read). Returns its path.
+# A ROM already patched to this variant (yours, or one made by an earlier run), found by its size and the CRC-32 its
+# patch states, in st-roms\ or the workspace. Needs Python; returns $null if there is none.
+function Find-PatchedRom {
+    $py = Find-Python
+    if (-not $py) { return $null }
+    $candidates = @(Get-ChildItem -Path $PatchedDir, $Root -Filter '*.nds' -File -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Length -eq $V.Size })
+    foreach ($c in $candidates) {
+        $crc = "$(& $py -I (Join-Path $Repo 'tools\bps_patch.py') --crc32 $c.FullName)".Trim()
+        if ($crc -eq $V.Crc) { return $c.FullName }
+    }
+    return $null
+}
+# The ROM of the chosen variant: the clean dump itself; for a patched variant, a ROM you already patched the same way,
+# else the patched copy made from the clean dump in st-roms\ (made once by tools\bps_patch.py, which checks the patch's
+# CRC-32s; the clean dump is only read). Returns its path.
 function Find-Rom {
+    if ($Variant -ne 'clean') {
+        $ready = Find-PatchedRom
+        if ($ready) { Step "game: Spirit Tracks ($($V.Label)), already patched: $ready"; return $ready }
+    }
     $clean = Find-CleanRom
     if (-not $clean) {
-        $msg = "no clean Spirit Tracks (USA) dump in $Root (SHA-1 $CleanSha1, $CleanSize bytes): copy yours there, any file name"
+        $msg = "no clean Spirit Tracks (USA) dump in $Root (SHA-1 $CleanSha1, $CleanSize bytes)$(if ($Variant -ne 'clean') { ', and no ROM already patched to this variant (CRC-32 ' + $V.Crc + ')' }): copy yours there, any file name"
         if ($DryRun) { Warn $msg; $clean = Join-Path $Root 'your-spirit-tracks-usa.nds' } else { Fail $msg }
     } else {
         Step "clean dump: $clean"

@@ -34,7 +34,9 @@ same engine, program and Android app, set up for Spirit Tracks.
 - Your own dump of the game: *Legend of Zelda, The - Spirit Tracks (USA, Australia) (En,Fr,Es)*, SHA-1
   `1f0921b5e99db9d92d24710f1b004e4f3c997b73` (the scripts find it by its SHA-1, whatever its name).
 - For the D-pad versions: d0k3's *DPAD & QoL Hack v0.9c* (the folder `loz_st_dpad_qol-v0.9c` with its BPS files). The
-  scripts patch your dump with it; nothing else is needed. Without it, build the clean game (`-Variant clean`).
+  scripts patch your dump with it; nothing else is needed. Without it, build the clean game (`-Variant clean`). A ROM
+  you already patched with the same file works too (the scripts recognise it by its size and CRC-32 below), even
+  without the clean dump.
 
   | Version | `-Variant` | Made with | Result |
   |---|---|---|---|
