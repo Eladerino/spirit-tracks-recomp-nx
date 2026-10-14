@@ -11,6 +11,11 @@ param([switch] $DryRun, [ValidateSet('', 'qol', 'dpad', 'clean')] [string] $Vari
 
 # ---- inputs from the PC build ----
 $generated = Join-Path $BuildDir 'recomp_generated'
+# Gradle's native build keeps CMake caches with absolute paths too (app\.cxx); with them goes app\build.
+if (Clear-IfMoved (Join-Path $AndroidDir 'app\.cxx')) {
+    $appBuild = Join-Path $AndroidDir 'app\build'
+    if ((Test-Path $appBuild) -and -not $DryRun) { Remove-Item -Recurse -Force $appBuild }
+}
 $sdlSrc = Join-Path $BuildDir '_deps\sdl3-src'
 if (-not (Test-Path $sdlSrc)) { $sdlSrc = Join-Path $Repo 'build\release\_deps\sdl3-src' }   # (shared by the variants)
 # The ROM the C was made from: the APK accepts only that one.
