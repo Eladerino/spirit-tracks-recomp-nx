@@ -8,13 +8,30 @@
   "romFile": "bkie.nds",
   "saveFile": "bkie.sav",
   "github": "dguillot-gh/spirit-tracks-recomp",
-  "romDirs": [],
+  "romDirs": [
+    "roms"
+  ],
   "roms": {
     "1f0921b5e99db9d92d24710f1b004e4f3c997b73": "USA (clean)"
   },
   "variants": [
-    { "id": "qol",   "label": "D-pad + QoL", "gameFolder": "SpiritTracks",       "apk": "SpiritTracks-qol-latest.apk" },
-    { "id": "dpad",  "label": "D-pad",       "gameFolder": "SpiritTracks-DPad",  "apk": "SpiritTracks-dpad-latest.apk" },
-    { "id": "clean", "label": "clean",       "gameFolder": "SpiritTracks-Clean", "apk": "SpiritTracks-clean-latest.apk" }
+    {
+      "id": "qol",
+      "label": "D-pad + QoL",
+      "gameFolder": "games/SpiritTracks",
+      "apk": "SpiritTracks-qol-latest.apk"
+    },
+    {
+      "id": "dpad",
+      "label": "D-pad",
+      "gameFolder": "games/SpiritTracks-DPad",
+      "apk": "SpiritTracks-dpad-latest.apk"
+    },
+    {
+      "id": "clean",
+      "label": "clean",
+      "gameFolder": "games/SpiritTracks-Clean",
+      "apk": "SpiritTracks-clean-latest.apk"
+    }
   ]
 }

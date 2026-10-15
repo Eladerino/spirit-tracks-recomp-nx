@@ -8,11 +8,11 @@ nothing here has the same name as its files.
 ```
 workspace\
   st-recomp\                 the repository (these scripts are in st-recomp\scripts)
-  your-dump.nds              your clean USA ROM
-  loz_st_dpad_qol-v0.9c\     the D-pad / D-pad + QoL patches (BPS)
-  st-roms\                   made by the scripts: the patched ROMs (yours only: do not share them)
-  SpiritTracks\              made by step 3: the game (D-pad + QoL), ready to play (do not share it: it contains the game)
-  SpiritTracks-DPad\, SpiritTracks-Clean\   the same for -Variant dpad / clean
+  roms\your-dump.nds         your clean USA ROM
+  roms\patches\loz_st_dpad_qol-v0.9c\ the D-pad / D-pad + QoL patches (BPS)
+  work\st-roms\              made by the scripts: the patched ROMs (yours only: do not share them)
+  games\SpiritTracks\        made by step 3: the game (D-pad + QoL), ready to play (do not share it: it contains the game)
+  games\SpiritTracks-DPad\, games\SpiritTracks-Clean\ the same for -Variant dpad / clean
   apks\                      made by RUN-ANDROID: the phone app, SpiritTracks-<variant>-*.apk (the same)
   logs\spirit-tracks\        every step's log, and the test's screenshots
 ```

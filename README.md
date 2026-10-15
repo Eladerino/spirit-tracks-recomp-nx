@@ -57,15 +57,15 @@ same engine, program and Android app, set up for Spirit Tracks.
 
 ## Building it
 
-Clone the repository into a folder of its own (the *workspace*), put your ROM (and the patch folder) in the workspace,
+Clone the repository into a folder of its own (the *workspace*), put your ROM in the workspace's `roms\` folder (and the patch folder in `roms\patches\`),
 and run the scripts in `st-recomp\scripts`. The workspace can be the same as Phantom Hourglass's: every name is
 different, so the two build side by side.
 
 ```
 workspace\
   st-recomp\                (this repository)
-  your-dump.nds             (any name: the scripts find it by its SHA-1)
-  loz_st_dpad_qol-v0.9c\    (the patch, for the D-pad versions)
+  roms\your-dump.nds        (any name: the scripts find it by its SHA-1)
+  roms\patches\loz_st_dpad_qol-v0.9c\ (the patch, for the D-pad versions)
 ```
 
 ```powershell
@@ -101,7 +101,7 @@ that holds this repository).
 | `1-INSTALL-TOOLS.ps1` | Checks for the build tools; installs the missing ones with winget (Windows' package manager) | Installs Git, Python 3, CMake, Ninja, LLVM and Visual Studio 2022 Build Tools (C++ and the Windows SDK): ordinary programs, removable in Settings > Apps. Build Tools and the SDK ask for admin once. |
 | `ANDROID-TOOLS.ps1` | Uses the Java 17 and Android SDK you already have, or gets them | Java 17 (Microsoft OpenJDK, winget); Google's Android command-line tools and SDK parts (platform 35, NDK) into the tools folder. Shows Android's licence for you to accept. |
 | `2-BUILD.ps1` | Recompiles your ROM's code to C and compiles the game and the program | Reads your ROM, never changes it. Downloads melonDS and SDL3 from GitHub the first time. Writes only inside `st-recomp\build`. |
-| `3-MAKE-GAME-FOLDER.ps1` | Makes `SpiritTracks\` in the workspace: the game, ready to play | Copies the program and your ROM there; never overwrites a save. |
+| `3-MAKE-GAME-FOLDER.ps1` | Makes `games\SpiritTracks\` in the workspace: the game, ready to play | Copies the program and your ROM there; never overwrites a save. |
 | `4-TEST.ps1` | Plays the game by itself for about a minute and takes screenshots | Works on copies of your save, in the logs folder. |
 | `5-BUILD-ANDROID.ps1` | Builds the phone app (APK) into `apks\` | Gradle downloads Android libraries from Google and Maven Central the first time. |
 | `6-INSTALL-PHONE.ps1` | Installs the app on your phone over USB | Copies your ROM into the app, and a save only if the phone has none; never replaces a save on the phone. |

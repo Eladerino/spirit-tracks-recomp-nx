@@ -7,6 +7,11 @@ $ErrorActionPreference = 'Stop'
 # every name here is Spirit Tracks's own (st-recomp, SpiritTracks*, st-roms, logs\spirit-tracks, apks\SpiritTracks-*).
 $Repo = Split-Path -Parent $PSScriptRoot
 $Root = Split-Path -Parent $Repo
+# The workspace's folders (its START-HERE.md): your ROMs and patches, the finished PC games, and what the build
+# makes on the way. ROMs are also still found loose in the workspace itself.
+$RomsDir = Join-Path $Root 'roms'
+$GamesDir = Join-Path $Root 'games'
+$WorkDir = Join-Path $Root 'work'
 
 # ---- which game: the clean USA dump, or one of the two patches made from it (d0k3's v0.9c, BPS files) ----------------
 #   qol    D-pad + QoL (the default): D-pad controls, L/R blow the flute, faster train
@@ -31,15 +36,16 @@ $CleanSha1 = '1f0921b5e99db9d92d24710f1b004e4f3c997b73'   # Legend of Zelda, The
 $Rev1Sha1 = '9953bce6ce32c35d084300c32b555b40aa013047'    # Legend of Zelda, The - Spirit Tracks (USA) (En,Fr,Es) (Rev 1).nds
 $CleanSize = 134217728
 # Where the patches are looked for: the patch's own folder as it unzips, or the workspace itself.
-$PatchDirs = @((Join-Path $Root 'loz_st_dpad_qol-v0.9c'), $Root)
-$PatchedDir = Join-Path $Root 'st-roms'                 # the patched ROMs the scripts make (yours: never share them)
+$PatchDirs = @((Join-Path $RomsDir 'patches\loz_st_dpad_qol-v0.9c'), (Join-Path $RomsDir 'loz_st_dpad_qol-v0.9c'),
+               (Join-Path $Root 'loz_st_dpad_qol-v0.9c'), $RomsDir, $Root)
+$PatchedDir = Join-Path $WorkDir 'st-roms'                 # the patched ROMs the scripts make (yours: never share them)
 $BuildPreset = $V.Preset
 $BuildDir = Join-Path $Repo "build\$BuildPreset"
-$GameDir = Join-Path $Root $V.Game                      # the finished, ready-to-play folder (step 3)
+$GameDir = Join-Path $GamesDir $V.Game                      # the finished, ready-to-play folder (step 3)
 # A melonDS save to start from (copied once, never moved): bkie.sav or a Spirit Tracks .sav in the workspace; melonDS's
 # .ml1.sav first (it is the newer of the two it writes).
-$MelonSave = Join-Path $Root 'bkie.sav'   # (where to put one; it need not exist)
-$saves = @(Get-ChildItem -Path $Root -Filter '*.sav' -File -ErrorAction SilentlyContinue |
+$MelonSave = Join-Path $RomsDir 'bkie.sav'   # (where to put one; it need not exist)
+$saves = @(Get-ChildItem -Path $Root, $RomsDir -Filter '*.sav' -File -ErrorAction SilentlyContinue |
            Where-Object { $_.Name -match '(?i)spirit|bkie' } | Sort-Object { if ($_.Name -match '\.ml\d\.sav$') { 0 } else { 1 } })
 if ($saves.Count -gt 0) { $MelonSave = $saves[0].FullName }
 
@@ -101,7 +107,7 @@ function Find-Python {
 }
 # Your clean USA dump, found by its SHA-1 (any file name) in the workspace or st-roms\.
 function Find-CleanRom {
-    $candidates = @(Get-ChildItem -Path $Root, $PatchedDir -Filter '*.nds' -File -ErrorAction SilentlyContinue |
+    $candidates = @(Get-ChildItem -Path $Root, $RomsDir, $PatchedDir -Filter '*.nds' -File -ErrorAction SilentlyContinue |
                     Where-Object { $_.Length -eq $CleanSize })
     $script:Rev1Rom = $null
     foreach ($c in $candidates) {
@@ -123,7 +129,7 @@ function Find-Patch {
 function Find-PatchedRom {
     $py = Find-Python
     if (-not $py) { return $null }
-    $candidates = @(Get-ChildItem -Path $PatchedDir, $Root -Filter '*.nds' -File -ErrorAction SilentlyContinue |
+    $candidates = @(Get-ChildItem -Path $PatchedDir, $RomsDir, $Root -Filter '*.nds' -File -ErrorAction SilentlyContinue |
                     Where-Object { $_.Length -eq $V.Size })
     foreach ($c in $candidates) {
         $crc = "$(& $py -I (Join-Path $Repo 'tools\bps_patch.py') --crc32 $c.FullName)".Trim()
