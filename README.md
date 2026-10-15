@@ -29,6 +29,13 @@ same engine, program and Android app, set up for Spirit Tracks.
 - **The microphone** (the pan flute, the whirlwind) is a key or a button.
 - An FPS counter, a side menu on both platforms, and the game's own saves kept as `.sav` files.
 
+## Tested on
+
+- **Phone:** Google Pixel 8. Other phones should work (Android 8 or newer, 64-bit ARM) but have not been tried, and GPU
+  drivers differ: if the picture looks wrong, the software renderer (1x, in the menu) is the safe fallback.
+- **PC:** Windows 11.
+- **Status:** plays on PC and on the Pixel 8. The GPU renderer shows stray dots on the Pixel 8's Mali GPU (being fixed); the software renderer is clean.
+
 ## What you need
 
 - Your own dump of the game: *Legend of Zelda, The - Spirit Tracks (USA, Australia) (En,Fr,Es)*, SHA-1
@@ -82,6 +89,27 @@ It gets Java 17 and the Android SDK if you do not have them (asking you to accep
 APK and installs it on the phone over USB debugging, with the ROM it was built from. Every script takes `-DryRun` to
 check everything without installing or building anything, and `-Variant`. The step-by-step guide is
 [scripts/README.md](scripts/README.md).
+
+## What the scripts do to your PC
+
+The scripts are plain text in `scripts\`: read any of them before running it. Add `-DryRun` to any script to see what
+it would do without installing or building anything. Each one writes a log to `logs\spirit-tracks\` in the workspace (the folder
+that holds this repository).
+
+| Script | What it does | What it changes on your PC |
+|---|---|---|
+| `1-INSTALL-TOOLS.ps1` | Checks for the build tools; installs the missing ones with winget (Windows' package manager) | Installs Git, Python 3, CMake, Ninja, LLVM and Visual Studio 2022 Build Tools (C++ and the Windows SDK): ordinary programs, removable in Settings > Apps. Build Tools and the SDK ask for admin once. |
+| `ANDROID-TOOLS.ps1` | Uses the Java 17 and Android SDK you already have, or gets them | Java 17 (Microsoft OpenJDK, winget); Google's Android command-line tools and SDK parts (platform 35, NDK) into the tools folder. Shows Android's licence for you to accept. |
+| `2-BUILD.ps1` | Recompiles your ROM's code to C and compiles the game and the program | Reads your ROM, never changes it. Downloads melonDS and SDL3 from GitHub the first time. Writes only inside `st-recomp\build`. |
+| `3-MAKE-GAME-FOLDER.ps1` | Makes `SpiritTracks\` in the workspace: the game, ready to play | Copies the program and your ROM there; never overwrites a save. |
+| `4-TEST.ps1` | Plays the game by itself for about a minute and takes screenshots | Works on copies of your save, in the logs folder. |
+| `5-BUILD-ANDROID.ps1` | Builds the phone app (APK) into `apks\` | Gradle downloads Android libraries from Google and Maven Central the first time. |
+| `6-INSTALL-PHONE.ps1` | Installs the app on your phone over USB | Copies your ROM into the app, and a save only if the phone has none; never replaces a save on the phone. |
+| `RUN-ALL.ps1`, `RUN-ANDROID.ps1` | Run the steps above in order, stopping at the first that fails | Nothing more than the steps they run. |
+
+Nothing is uploaded or sent anywhere. Nothing is left running in the background or set to start with Windows, and
+no system settings are changed beyond what the installers above do themselves. Everything the build makes stays in the
+workspace and the tools folder.
 
 ## Playing on a PC
 
