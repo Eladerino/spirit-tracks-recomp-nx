@@ -39,7 +39,8 @@ public class GameActivity extends SDLActivity {
         return new String[] {
                 new File(files, "rom/bkie.nds").getAbsolutePath(),
                 "--data-dir", files.getAbsolutePath(),
-                "--renderer", prefs.getBoolean("gpu", false) ? "gpu" : "software",
+                "--renderer", !prefs.getBoolean("gpu", false) ? "software"
+                              : prefs.getBoolean("compute", false) ? "compute" : "gpu",
                 "--scale", String.valueOf(Math.min(6, prefs.getInt("scale", 2))),
         };
     }

@@ -19,5 +19,7 @@ extern std::atomic<int> state_save;  // save a state to this slot (1-12; 0: none
 extern std::atomic<int> state_load;  // load the state in this slot
 extern std::atomic<int> video;       // a renderer asked for: (GPU ? 1 : 0) << 8 | internal resolution; -1: none
 extern std::atomic<bool> gpu_failed; // the GPU renderer could not start (software only)
+extern std::atomic<int> compute;     // the compute renderer asked for (1) or the OpenGL one (0); -1: no change
+extern std::atomic<bool> compute_failed; // the compute renderer cannot run on this phone (the OpenGL one does)
 
 }  // namespace st::pad

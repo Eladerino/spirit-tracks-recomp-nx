@@ -17,10 +17,13 @@
 #include "NDSCart.h"
 #include "SPU.h"
 #include "gx_hook.hpp"
-#include "local_wireless.hpp"
 #include "ntr/hash.hpp"
 #include "ntr/rom.hpp"
 #include "runtime_internal.hpp"
+
+namespace melonDS {
+extern int FfccComputeOutputWidth;
+}
 
 namespace ntr {
 
@@ -75,18 +78,6 @@ RuntimeImpl::RuntimeImpl(std::vector<uint8_t> rom, const GameCode& code, Host& h
     melonDS::NDSArgs args;
     args.JIT = std::nullopt;
     args.OutputSampleRate = 48000.0;
-    // Local wireless with other instances on this PC: each console needs a MAC address of its own (melonDS's scheme
-    // for its instances; the first instance keeps the default).
-    if (LocalWireless* w = LocalWireless::get(); w && w->slot() > 0) {
-        auto& header = args.Firmware.GetHeader();
-        const int n = w->slot();
-        header.MacAddr[3] += n;
-        header.MacAddr[4] += n * 0x44;
-        header.MacAddr[5] += n * 0x10;
-        header.MacAddr[0] &= 0xFC;
-        header.UpdateChecksum();
-        args.Firmware.UpdateChecksums();
-    }
     {
         // The language the game plays in: the firmware's setting, in both copies of the user data.
         for (auto& user : args.Firmware.GetUserData()) {
@@ -96,7 +87,7 @@ RuntimeImpl::RuntimeImpl(std::vector<uint8_t> rom, const GameCode& code, Host& h
         args.Firmware.UpdateChecksums();
     }
     if (!options.console_name.empty()) {
-        // The nickname other players see (online and local wireless lobbies): both copies of the firmware's user data.
+        // The console's nickname (the firmware's, which games may show): both copies of the firmware's user data.
         char16_t nick[10] = {};
         unsigned n = 0;
         for (size_t i = 0; i < options.console_name.size() && n < 10;) {
@@ -113,22 +104,6 @@ RuntimeImpl::RuntimeImpl(std::vector<uint8_t> rom, const GameCode& code, Host& h
             user.NameLength = u16(n);
             user.UpdateChecksum();
         }
-        args.Firmware.UpdateChecksums();
-    }
-    if (options.wifi_settings.size() == 0x300) {
-        // The Wi-Fi Connection user ID and password of each connection, at 0xF0 (the rest is melonDS's access point,
-        // set up below).
-        auto& aps = args.Firmware.GetAccessPoints();
-        for (size_t i = 0; i < aps.size(); i++) {
-            std::memcpy(&aps[i].Bytes[0xF0], &options.wifi_settings[i * 256 + 0xF0], 14);
-            aps[i].UpdateChecksum();
-        }
-        args.Firmware.UpdateChecksums();
-    }
-    if (options.online_dns != std::array<uint8_t, 4>{}) {
-        auto& ap = args.Firmware.GetAccessPoints()[0];  // melonDS's access point, which the console connects through
-        ap.PrimaryDns = ap.SecondaryDns = options.online_dns;
-        ap.UpdateChecksum();
         args.Firmware.UpdateChecksums();
     }
     nds = std::make_unique<RecompNDS>(std::move(args), this);
@@ -385,6 +360,14 @@ void RuntimeImpl::end_frame() {
         frame.gl_texture = *static_cast<const GLuint*>(top);
         frame.scale = video_.scale;
         frame.wide_extra = video_.wide_extra;
+        frame.wide_layer = n.GPU.ScreenSwap ? 0 : 1;  // (POWCNT1 bit 15: engine A on the top screen)
+        if (melonDS::FfccHudEdges) {
+            frame.hud_moves = std::clamp(melonDS::FfccHudMovedCount, 0, 32);
+            for (int i = 0; i < frame.hud_moves; i++) {
+                const int* m = melonDS::FfccHudMoved[i];
+                frame.hud_move[i] = {m[0], m[1], m[2], m[3], m[4]};
+            }
+        }
     }
     if (perf_mark_ != std::chrono::steady_clock::time_point{})
         frame.emu_ms = std::chrono::duration<double, std::milli>(emulated_until - perf_mark_).count();
@@ -964,6 +947,25 @@ void RuntimeImpl::apply_cpu_speed(int multiplier) {
     cpu.next_event = int64_t(n.ARM9Target);
 }
 
+// Whether the compute renderer can run: desktop OpenGL 4.3, or on the phone OpenGL ES 3.1+ with its compute functions
+// (the shaders are made GLSL ES by third_party/gles_compute_fixes.cmake). Logged once.
+static bool compute_available() {
+#ifdef __ANDROID__
+    static int ok = -1;
+    if (ok < 0) {
+        GLint major = 0, minor = 0;
+        glGetIntegerv(GL_MAJOR_VERSION, &major);
+        glGetIntegerv(GL_MINOR_VERSION, &minor);
+        const bool es31 = major > 3 || (major == 3 && minor >= 1);
+        ok = es31 && glDispatchCompute && glDispatchComputeIndirect && glBindImageTexture && glMemoryBarrier && glTexBuffer;
+        log("video: OpenGL ES %d.%d: the compute renderer is %s\n", int(major), int(minor), ok ? "available" : "not available");
+    }
+    return ok != 0;
+#else
+    return GLAD_GL_VERSION_4_3 != 0;
+#endif
+}
+
 // Switches melonDS's renderer (between frames). Falls back to OpenGL when the context lacks compute shaders, and to
 // Software when there is no usable context at all.
 void RuntimeImpl::apply_video(VideoSettings s) {
@@ -973,12 +975,13 @@ void RuntimeImpl::apply_video(VideoSettings s) {
         log("video: no OpenGL context, using the software renderer\n");
         s.renderer = Renderer::Software;
     }
-    if (s.renderer == Renderer::Compute && !GLAD_GL_VERSION_4_3) {
-        log("video: OpenGL 4.3 is not available for the compute renderer, using OpenGL\n");
+    if (s.renderer == Renderer::Compute && !compute_available()) {
+        log("video: the compute renderer cannot run here (it needs OpenGL 4.3, or OpenGL ES 3.1), using OpenGL\n");
         s.renderer = Renderer::OpenGL;
     }
     // (The widescreen picture is made by the OpenGL and compute renderers only.)
-    if (s.renderer != Renderer::OpenGL) s.wide_extra = 0;
+    if (s.renderer != Renderer::Compute) melonDS::FfccComputeOutputWidth = 0;
+    if (s.renderer == Renderer::Software) s.wide_extra = 0;
     s.wide_extra = std::clamp(s.wide_extra, 0, 256);
     melonDS::FfccWideExtra = s.wide_extra;
     melonDS::FfccStableUV = s.stable_textures;
@@ -986,6 +989,7 @@ void RuntimeImpl::apply_video(VideoSettings s) {
     s.hud_scale = std::clamp(s.hud_scale, 50, 200);
     melonDS::FfccHudEdges = s.hud_edges && s.wide_extra;
     melonDS::FfccHudScale = s.hud_scale;
+    melonDS::FfccHudSides = s.hud_sides && melonDS::FfccHudEdges;
     // (A new width needs the renderer's textures made again: a new renderer does that.)
     if (!video_applied_ || s.renderer != video_.renderer || s.wide_extra != video_.wide_extra) {
         if (s.renderer == Renderer::Software)
@@ -1010,8 +1014,8 @@ void RuntimeImpl::apply_video(VideoSettings s) {
     }
     video_ = s;
     video_applied_ = true;
-    log("video: %s renderer, %dx (%dx%d per screen)%s\n", renderer_name(s.renderer), s.scale, 256 * s.scale,
-        192 * s.scale,
+    log("video: %s renderer, %dx (%dx%d per screen)%s\n", renderer_name(s.renderer), s.scale,
+        (256 + 2 * s.wide_extra) * s.scale, 192 * s.scale,
         s.display_rate  ? ", 3D interpolated to the display's refresh rate"
         : s.interpolate ? ", 3D interpolated to 60 fps"
                         : "");
@@ -1038,6 +1042,14 @@ void RuntimeImpl::touch(int x, int y) {
     touch_y_ = std::clamp(y, 0, 191);
 }
 void RuntimeImpl::release_touch() { touch_x_ = touch_y_ = -1; }
+
+uint32_t RuntimeImpl::peek32(uint32_t a) const {
+    const size_t page = a >> 12;
+    if (page >= read_pages_.size() || !read_pages_[page]) return 0;
+    u32 v;
+    std::memcpy(&v, read_pages_[page] + (a & 0xFFCu), 4);
+    return v;
+}
 
 // ---------------------------------------------------------------------------------------------------------------
 // Coprocessor

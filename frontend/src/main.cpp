@@ -12,7 +12,7 @@
 // on the main thread (software renderer only).
 //
 //   SpiritTracks.exe <rom.nds> [--save-file F] [--data-dir D] [--input-script S] [--exit-after-frames N]
-//                        [--fullscreen] [--unpaced] [--module M] [--read-only-save] [--renderer software|gpu]
+//                        [--fullscreen] [--unpaced] [--module M] [--read-only-save] [--renderer software|gpu|compute]
 //                        [--scale 2|4|6|8]
 #include <SDL3/SDL.h>
 #ifdef __ANDROID__
@@ -74,6 +74,8 @@ std::atomic<int> state_save{0};
 std::atomic<int> state_load{0};
 std::atomic<int> video{-1};
 std::atomic<bool> gpu_failed{false};
+std::atomic<int> compute{-1};
+std::atomic<bool> compute_failed{false};
 }  // namespace st::pad
 
 namespace {
@@ -131,6 +133,7 @@ struct Settings {
     bool smooth = false;  // linear filtering instead of sharp pixels
     bool fps = false;
     bool gpu = false;     // the GPU renderer (PC)
+    bool compute = false; // with gpu: melonDS's compute-shader renderer (OpenGL 4.3 / ES 3.1), else its OpenGL one
     int scale = 4;        // its internal resolution
     int slot = 1;         // the save state slot chosen (1-12)
     int fps_corner = 1;   // the FPS counter's corner of the picture (0 top left, 1 top right, 2 bottom left, 3 bottom right)
@@ -149,7 +152,7 @@ Settings load_settings(const fs::path& p) {
         else if (k == "fullscreen") s.fullscreen = v == "1";
         else if (k == "smooth") s.smooth = v == "1";
         else if (k == "fps") s.fps = v == "1";
-        else if (k == "renderer") s.gpu = v == "gpu";
+        else if (k == "renderer") s.gpu = v == "gpu" || v == "compute", s.compute = v == "compute";
         else if (k == "scale") s.scale = std::atoi(v.c_str());
         else if (k == "slot") s.slot = std::clamp(std::atoi(v.c_str()), 1, kSlots);
         else if (k == "fps_corner") s.fps_corner = std::clamp(std::atoi(v.c_str()), 0, 3);
@@ -168,7 +171,7 @@ void save_settings(const fs::path& p, const Settings& s) {
     f << "fullscreen=" << (s.fullscreen ? 1 : 0) << "\n";
     f << "smooth=" << (s.smooth ? 1 : 0) << "\n";
     f << "fps=" << (s.fps ? 1 : 0) << "\n";
-    f << "renderer=" << (s.gpu ? "gpu" : "software") << "\n";
+    f << "renderer=" << (s.gpu ? (s.compute ? "compute" : "gpu") : "software") << "\n";
     f << "scale=" << s.scale << "\n";
     f << "slot=" << s.slot << "\n";
     f << "fps_corner=" << s.fps_corner << "\n";
@@ -177,8 +180,11 @@ void save_settings(const fs::path& p, const Settings& s) {
 
 ntr::VideoSettings video_for(const Settings& s) {
     ntr::VideoSettings v;
-    v.renderer = s.gpu ? ntr::Renderer::OpenGL : ntr::Renderer::Software;
+    v.renderer = !s.gpu ? ntr::Renderer::Software : s.compute ? ntr::Renderer::Compute : ntr::Renderer::OpenGL;
     v.scale = s.gpu ? s.scale : 1;
+#ifdef __ANDROID__
+    if (s.compute) v.scale = std::min(v.scale, 4);  // (its tile memory at 6x: some 300 MB of a phone's graphics memory)
+#endif
     return v;
 }
 
@@ -265,6 +271,7 @@ struct Shared {
     std::atomic<bool> blow{false};  // the player's "blow into the mic" input is held
     std::atomic<bool> quit{false};
     std::atomic<bool> paused{false};  // the app is in the background (Android): the game waits
+    std::atomic<bool> background_event{false}, foreground_event{false};  // (Android: from watch_android_lifecycle)
 
     // The last finished frame from the software renderer, both screens stacked (top, then bottom).
     std::mutex frame_mutex;
@@ -279,6 +286,7 @@ struct Shared {
     int menu_page = 0;
     bool video_dirty = false;
     std::atomic<bool> gpu_failed{false};  // the GPU renderer could not start
+    std::atomic<bool> compute_failed{false};  // the compute renderer was asked for and cannot run (the OpenGL one does)
     std::atomic<int> gl_display{0};       // 1: the game thread draws with OpenGL; -1: it cannot (phone fallback)
     std::atomic<bool> shot_request{false};
     fs::path shot_dir;
@@ -312,6 +320,29 @@ struct Shared {
     std::atomic<bool> game_done{false};
     int exit_code = 0;
 };
+
+#ifdef __ANDROID__
+// SDL's Android application lifecycle events are delivered to event watches, not the SDL_PollEvent queue.
+bool SDLCALL watch_android_lifecycle(void* userdata, SDL_Event* event) {
+    auto& shared = *static_cast<Shared*>(userdata);
+    switch (event->type) {
+        case SDL_EVENT_WILL_ENTER_BACKGROUND:
+        case SDL_EVENT_DID_ENTER_BACKGROUND:
+            shared.paused = true;
+            shared.background_event = true;
+            std::fprintf(stderr, "android: lifecycle background event %u\n", unsigned(event->type));
+            break;
+        case SDL_EVENT_DID_ENTER_FOREGROUND:
+            shared.foreground_event = true;
+            shared.paused = false;
+            std::fprintf(stderr, "android: lifecycle foreground event\n");
+            break;
+        default:
+            break;
+    }
+    return true;
+}
+#endif
 
 class Host final : public ntr::Host {
 public:
@@ -376,7 +407,17 @@ public:
         if (s_.paused.load()) {  // (Android: the window's surface goes in the background)
             if (gl_) gl_->release();
             while (s_.paused.load() && !s_.quit.load()) SDL_Delay(50);
-            if (gl_) gl_->acquire();
+            if (gl_ && !gl_->acquire()) {
+                std::string error;
+                if (gl_->recover(error)) {
+                    std::fprintf(stderr, "video: Android GL context recovered; using software renderer for this run\n");
+                    rt_->set_video(ntr::VideoSettings{});
+                    s_.gpu_failed = true;
+                } else {
+                    std::fprintf(stderr, "video: could not recover Android GL context: %s\n", error.c_str());
+                    s_.quit = true;
+                }
+            }
         }
         pace();
         return !s_.quit.load();
@@ -475,10 +516,19 @@ private:
             s_.video_dirty = false;
         }
         if (video_dirty) rt_->set_video(video_for(view)), video_asked_ = frames_;
+        if (!gl_->can_display(frame)) {
+            if (!s_.gpu_failed.exchange(true)) {
+                std::fprintf(stderr, "video: Android renderer resources were lost; using software renderer for this run\n");
+                rt_->set_video(ntr::VideoSettings{});
+            }
+            return;
+        }
         // A GPU renderer that could not start falls back to software: say so in the menu. (The runtime switches
         // between frames, so until a couple of frames after a change it still reports the renderer it had.)
         if (view.gpu && rt_->video().renderer == ntr::Renderer::Software && frames_ > video_asked_ + 2)
             s_.gpu_failed = true;
+        if (frames_ > video_asked_ + 2)
+            s_.compute_failed = view.gpu && view.compute && rt_->video().renderer == ntr::Renderer::OpenGL;
 
         int w = 0, h = 0;
         SDL_GetWindowSizeInPixels(window_, &w, &h);
@@ -540,6 +590,7 @@ private:
                              view.slot, times_};
             ms.fps_corner = view.fps_corner;
             ms.stretch = view.stretch;
+            ms.compute = view.compute;
             const int layer = view.layout == Layout::Top ? 0 : 1;  // the screen the player looks at
             menu.draw(*gl_, ms, float(w), float(h), ui, float(st::pad::game_fps10.load()) / 10.0f,
                       [&](int slot, const st::Rect& r) { gl_->thumbnail(slot, layer, r); });
@@ -787,7 +838,8 @@ int main(int argc, char** argv) {
 
     Settings settings = testing ? Settings{} : load_settings(settings_path);
     if (fullscreen_arg) settings.fullscreen = true;
-    if (renderer_arg == "gpu") settings.gpu = true;
+    if (renderer_arg == "gpu") settings.gpu = true, settings.compute = false;
+    else if (renderer_arg == "compute") settings.gpu = settings.compute = true;
     else if (renderer_arg == "software") settings.gpu = false;
     if (std::find(std::begin(kScales), std::end(kScales), scale_arg) != std::end(kScales)) settings.scale = scale_arg;
 #ifdef __ANDROID__
@@ -824,6 +876,10 @@ int main(int argc, char** argv) {
     shared.shot_dir = data_dir / "screenshots";
     shared.state_dir = data_dir / "states";
     Host host(shared, window, audio, std::move(script), exit_after, unpaced);
+#ifdef __ANDROID__
+    const bool lifecycle_watch_registered = SDL_AddEventWatch(watch_android_lifecycle, &shared);
+    if (!lifecycle_watch_registered) std::fprintf(stderr, "android: could not register SDL lifecycle event watch: %s\n", SDL_GetError());
+#endif
     GameThreadArgs args{&shared, window, &host, std::move(rom), code, {}};
     args.options.save_data = read_file(save_path);
     args.options.console_name = "Link";
@@ -893,14 +949,16 @@ int main(int argc, char** argv) {
                          settings.fullscreen, shared.gpu_failed.load(), settings.slot, slot_times(shared.state_dir)};
         ms.fps_corner = settings.fps_corner;
         ms.stretch = settings.stretch;
+        ms.compute = settings.compute;
         return ms;
     };
     auto menu_done = [&](const st::MenuState& ms, st::MenuResult r) {
-        const bool video = ms.gpu != settings.gpu || ms.scale != settings.scale;
+        const bool video = ms.gpu != settings.gpu || ms.compute != settings.compute || ms.scale != settings.scale;
         if (r == st::MenuResult::Quit) shared.quit = true;
         settings.layout = ms.layout, settings.gpu = ms.gpu, settings.scale = ms.scale;
         settings.smooth = ms.smooth, settings.fps = ms.fps, settings.slot = ms.slot;
         settings.fps_corner = ms.fps_corner, settings.stretch = ms.stretch;
+        settings.compute = ms.compute;
         if (ms.fullscreen != settings.fullscreen) set_fullscreen(ms.fullscreen);
         st::pad::fps = settings.fps;
         st::pad::fps_corner = settings.fps_corner;
@@ -936,6 +994,16 @@ int main(int argc, char** argv) {
             }
         }
 #endif
+#ifdef __ANDROID__
+        // Android: in the background the game waits and the save is written at once (the app may be killed).
+        if (shared.background_event.exchange(false)) {
+            if (audio) SDL_PauseAudioStreamDevice(audio);
+            flush_save();
+        }
+        if (shared.foreground_event.exchange(false)) {
+            if (audio) SDL_ResumeAudioStreamDevice(audio);
+        }
+#endif
         SDL_Event e;
         int win_pw = 1, win_ph = 1;
         SDL_GetWindowSizeInPixels(window, &win_pw, &win_ph);
@@ -947,17 +1015,6 @@ int main(int argc, char** argv) {
             switch (e.type) {
                 case SDL_EVENT_QUIT:
                 case SDL_EVENT_TERMINATING: shared.quit = true; break;
-                // Android: in the background the game waits and the save is written at once (the app may be killed).
-                case SDL_EVENT_WILL_ENTER_BACKGROUND:
-                case SDL_EVENT_DID_ENTER_BACKGROUND:
-                    shared.paused = true;
-                    if (audio) SDL_PauseAudioStreamDevice(audio);
-                    flush_save();
-                    break;
-                case SDL_EVENT_DID_ENTER_FOREGROUND:
-                    shared.paused = false;
-                    if (audio) SDL_ResumeAudioStreamDevice(audio);
-                    break;
                 case SDL_EVENT_FINGER_DOWN:
                 case SDL_EVENT_FINGER_MOTION:
                 case SDL_EVENT_FINGER_UP:
@@ -1047,7 +1104,10 @@ int main(int argc, char** argv) {
             if (std::find(std::begin(kScales), std::end(kScales), want & 0xFF) != std::end(kScales)) settings.scale = want & 0xFF;
             changed = video = true;
         }
+        if (const int want = st::pad::compute.exchange(-1); want >= 0 && (want != 0) != settings.compute)
+            settings.compute = want != 0, changed = video = true;
         st::pad::gpu_failed = shared.gpu_failed.load();
+        st::pad::compute_failed = shared.compute_failed.load();
         if (const int slot = st::pad::state_save.exchange(0); slot >= 1 && slot <= kSlots) shared.state_save = slot;
         if (const int slot = st::pad::state_load.exchange(0); slot >= 1 && slot <= kSlots) shared.state_load = slot;
         if (changed) publish(video);
@@ -1137,6 +1197,9 @@ int main(int argc, char** argv) {
 
     shared.quit = true;
     SDL_WaitThread(thread, nullptr);
+#ifdef __ANDROID__
+    if (lifecycle_watch_registered) SDL_RemoveEventWatch(watch_android_lifecycle, &shared);
+#endif
     flush_save();
     if (shared.started == -1) error_box(shared.start_error, window);
     if (!testing) save_settings(settings_path, settings);

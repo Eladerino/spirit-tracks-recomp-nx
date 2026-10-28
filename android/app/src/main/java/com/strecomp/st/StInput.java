@@ -48,4 +48,10 @@ public final class StInput {
 
     /** The GPU renderer could not start on this phone (the game is on the software one). */
     public static native boolean nativeGpuFailed();
+
+    /** The compute renderer (with the GPU one on): more accurate 3D; needs OpenGL ES 3.1, else the OpenGL renderer
+     *  draws (nativeComputeFailed). */
+    public static native void nativeSetCompute(boolean on);
+
+    public static native boolean nativeComputeFailed();
 }

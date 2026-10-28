@@ -198,6 +198,7 @@ void GlPresenter::shutdown() {
     context_ = nullptr;
 }
 
+
 void GlPresenter::begin(int width, int height) {
     width_ = width > 0 ? width : 1;
     height_ = height > 0 ? height : 1;
@@ -230,7 +231,7 @@ void GlPresenter::quad(const Rect& r, float u0, float v0, float u1, float v1) {
     glDrawArrays(GL_TRIANGLES, 0, 6);
 }
 
-void GlPresenter::screen(const ntr::Frame& frame, int layer, const Rect& where, bool smooth) {
+void GlPresenter::screen(const ntr::Frame& frame, int layer, const Rect& where, bool smooth, bool wide) {
     glActiveTexture(GL_TEXTURE0);
     if (frame.top && frame.bottom) {
         glBindTexture(GL_TEXTURE_2D_ARRAY, soft_tex_);
@@ -244,9 +245,10 @@ void GlPresenter::screen(const ntr::Frame& frame, int layer, const Rect& where, 
     const int f = smooth ? GL_LINEAR : GL_NEAREST;
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, f);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, f);
-    // A widened picture (the GPU renderer's wide_extra) has the screen's 256 pixels in the middle.
+    // A widened picture (the GPU renderer's wide_extra) has the screen's 256 pixels in the middle; the wide screen
+    // itself is shown whole when asked for (widescreen).
     float u0 = 0, u1 = 1;
-    if (frame.wide_extra > 0) {
+    if (frame.wide_extra > 0 && !(wide && layer == frame.wide_layer)) {
         const float total = 256.0f + 2.0f * float(frame.wide_extra);
         u0 = float(frame.wide_extra) / total;
         u1 = 1 - u0;
@@ -301,12 +303,19 @@ void GlPresenter::thumbnail(int slot, int layer, const Rect& where) {
 }
 
 void GlPresenter::end() {
-    // OpenGL errors from the frame (the GPU renderer's included): the first few, in the log (on a phone, logcat).
+#if defined(ST_GL_DIAGNOSTICS)
+    // OpenGL error polling can force driver work on some phones; enable only for diagnosis.
     for (GLenum e; errors_logged_ < 40 && (e = glGetError()) != GL_NO_ERROR;)
         std::fprintf(stderr, "video: OpenGL error 0x%04x (%d logged)\n", unsigned(e), ++errors_logged_);
+#endif
     glBindVertexArray(0);
     glUseProgram(0);
-    SDL_GL_SwapWindow(window_);
+    if (!SDL_GL_SwapWindow(window_)) {
+        if (errors_logged_ < 40) {
+            std::fprintf(stderr, "video: SDL_GL_SwapWindow failed: %s\n", SDL_GetError());
+            ++errors_logged_;
+        }
+    }
 }
 
 bool GlPresenter::read_screens(const ntr::Frame& frame, std::vector<uint32_t>& out, int& width, int& height) {
@@ -358,6 +367,36 @@ void set_gl_attributes() {
 
 void GlPresenter::release() { SDL_GL_MakeCurrent(window_, nullptr); }
 
-void GlPresenter::acquire() { SDL_GL_MakeCurrent(window_, context_); }
+bool GlPresenter::acquire() {
+    if (!SDL_GL_MakeCurrent(window_, context_)) return false;
+    return SDL_GL_GetCurrentContext() == context_ && program_ && glIsProgram(program_) && vao_ && glIsVertexArray(vao_);
+}
+
+bool GlPresenter::recover(std::string& error) {
+    // A context lost by Android invalidates all GL names. Abandon those names instead of
+    // deleting them in the replacement context, then create a fresh presenter context.
+    SDL_GL_MakeCurrent(window_, nullptr);
+    context_ = nullptr;
+    program_ = vao_ = vbo_ = soft_tex_ = font_tex_ = read_fbo_ = thumb_tex_ = 0;
+    checked_frame_texture_ = 0;
+    checked_frame_texture_valid_ = true;
+    u_view_ = u_mode_ = u_layer_ = u_color_ = u_tex_ = u_font_ = u_swap_ = -1;
+    gpu_ok_ = false;
+    errors_logged_ = 0;
+    version_.clear();
+    return init(window_, error);
+}
+
+bool GlPresenter::can_display(const ntr::Frame& frame) const {
+    if (SDL_GL_GetCurrentContext() != context_ || !program_ || !vao_)
+        return false;
+    // Frame texture names are stable during normal rendering. Checking GL object validity every frame
+    // can serialize the CPU with the driver, so only validate when the runtime changes the texture.
+    if (frame.gl_texture != checked_frame_texture_) {
+        checked_frame_texture_ = frame.gl_texture;
+        checked_frame_texture_valid_ = !frame.gl_texture || glIsTexture(frame.gl_texture);
+    }
+    return checked_frame_texture_valid_;
+}
 
 }  // namespace st

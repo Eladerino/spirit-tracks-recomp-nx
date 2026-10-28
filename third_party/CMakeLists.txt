@@ -101,6 +101,17 @@ ffcc_patch(gpu3d_gl_src GPU3D_OpenGL.cpp "    if (CurShaderID == flags) return;
     }
     glUniform1i(glGetUniformLocation(RenderShader[flags], \"uSmoothTex\"), FfccSmoothTex); // ffcc patch
 ")
+# The 3D textures' wrap modes through sampler objects (ph patch: smeared textures on a phone's GPU, see the code).
+ffcc_patch(gpu3d_gl_src GPU3D_OpenGL.cpp "void GLRenderer3D::SetupPolygonTexture(const RendererPolygon* poly) const\n{\n"
+  "// ph patch: the 3D's textures repeat, mirror or clamp through a sampler object per mode, bound for each draw, instead\n// of changing the texture's own wrap state between draws: a phone's GPU driver (Mali, which draws a frame's draws later\n// in one go) applied a later wrap state to earlier draws, and textures that repeat smeared as if clamped.\nstatic GLuint ph_wrap_samplers[9] = {};\nstatic void ph_bind_wrap_sampler(GLuint unit, GLint s, GLint t)\n{\n    if (!ph_wrap_samplers[0])\n    {\n        const GLint modes[3] = {GL_CLAMP_TO_EDGE, GL_REPEAT, GL_MIRRORED_REPEAT};\n        glGenSamplers(9, ph_wrap_samplers);\n        for (int k = 0; k < 9; k++)\n        {\n            glSamplerParameteri(ph_wrap_samplers[k], GL_TEXTURE_WRAP_S, modes[k / 3]);\n            glSamplerParameteri(ph_wrap_samplers[k], GL_TEXTURE_WRAP_T, modes[k % 3]);\n            glSamplerParameteri(ph_wrap_samplers[k], GL_TEXTURE_MIN_FILTER, GL_NEAREST);\n            glSamplerParameteri(ph_wrap_samplers[k], GL_TEXTURE_MAG_FILTER, GL_NEAREST);\n        }\n    }\n    const int si = s == GL_CLAMP_TO_EDGE ? 0 : s == GL_REPEAT ? 1 : 2;\n    const int ti = t == GL_CLAMP_TO_EDGE ? 0 : t == GL_REPEAT ? 1 : 2;\n    glBindSampler(unit, ph_wrap_samplers[si * 3 + ti]);\n}\n// After the draw: the other passes read these texture units with their textures' own state.\nstatic void ph_unbind_wrap_samplers()\n{\n    for (GLuint unit = 0; unit < 3; unit++) glBindSampler(unit, 0);\n}\n\nvoid GLRenderer3D::SetupPolygonTexture(const RendererPolygon* poly) const\n{\n")
+ffcc_patch(gpu3d_gl_src GPU3D_OpenGL.cpp "    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, repeatS);\n    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, repeatT);\n}\n"
+  "    ph_bind_wrap_sampler(iscap ? (poly->TexID == (GLuint)-1 ? 1 : 2) : 0, repeatS, repeatT); // ph patch\n}\n")
+ffcc_patch(gpu3d_gl_src GPU3D_OpenGL.cpp "    glDrawElements(rp->PrimType, rp->NumIndices, GL_UNSIGNED_SHORT, (void*)(uintptr_t)(rp->IndicesOffset * 2));\n"
+  "    glDrawElements(rp->PrimType, rp->NumIndices, GL_UNSIGNED_SHORT, (void*)(uintptr_t)(rp->IndicesOffset * 2));\n    ph_unbind_wrap_samplers(); // ph patch\n")
+ffcc_patch(gpu3d_gl_src GPU3D_OpenGL.cpp "    glDrawElements(primtype, numindices, GL_UNSIGNED_SHORT, (void*)(uintptr_t)(rp->IndicesOffset * 2));\n"
+  "    glDrawElements(primtype, numindices, GL_UNSIGNED_SHORT, (void*)(uintptr_t)(rp->IndicesOffset * 2));\n    ph_unbind_wrap_samplers(); // ph patch\n")
+ffcc_patch(gpu3d_gl_src GPU3D_OpenGL.cpp "    glDrawElements(GL_LINES, numindices, GL_UNSIGNED_SHORT, (void*)(uintptr_t)(rp->EdgeIndicesOffset * 2));\n"
+  "    glDrawElements(GL_LINES, numindices, GL_UNSIGNED_SHORT, (void*)(uintptr_t)(rp->EdgeIndicesOffset * 2));\n    ph_unbind_wrap_samplers(); // ph patch\n")
 # DEBUG (temporary): FfccDebug3D, set on the phone from files/debug3d.txt (frontend/src/main.cpp), to find the cyan dots of
 # Spirit Tracks's GPU renderer on a Mali GPU: 1 skips the fog pass, 2 makes the fog shader skip far-plane pixels (the
 # GLES shader only, gles_shader_fixes.cmake), 4 skips line polygons.
@@ -136,11 +147,11 @@ string(REPLACE "\r\n" "\n" gpu2d_gl_src "${gpu2d_gl_src}")
 ffcc_patch(gpu2d_gl_src GPU2D_OpenGL.cpp "        cfg.BGOffset[0][0] = xpos - ((xpos & 0x100) << 1);\n"
   "        cfg.BGOffset[0][0] = xpos - ((xpos & 0x100) << 1) + FfccWideExtra; // ffcc patch\n")
 ffcc_patch(gpu2d_gl_src GPU2D_OpenGL.cpp "            cfg.Size[0] = 256; cfg.Size[1] = 192;\n            cfg.Type = 6;\n"
-  "            cfg.Size[0] = 256 + 2 * FfccWideExtra; cfg.Size[1] = 192; // ffcc patch\n            cfg.Type = 6;\n")
+  "            cfg.Size[0] = FfccComputeOutputWidth > 0 ? FfccComputeOutputWidth : 256 + 2 * FfccWideExtra; cfg.Size[1] = 192; // ph patch: sample the padded Compute texture at its real width\n            cfg.Type = 6;\n")
 # Engine A's 2D (its sprite layer, composite and output) is (256 + 2 * extra) pixels wide: the DS's 256 are in the
 # middle, backgrounds stay there, sprites can reach the sides, and the 3D layer fills it (see the shaders below).
 ffcc_patch(gpu2d_gl_src GPU2D_OpenGL.cpp "namespace melonDS\n{\n"
-  "namespace melonDS\n{\nextern int FfccWideExtra, FfccHudEdges, FfccHudScale; // ffcc patch\n// The HUD's pickup text (a line of the engine A background layer 2 beside the HUD's item icon) follows the HUD: the\n// rectangle (x0, y0, x1, y1) of DS pixels is moved like the HUD cluster is (anchor.xy, x offset, scale), 0 if none.\nstatic float ffcc_text_hud[4] = {0, 192, 0, 1}, ffcc_text_rect[4] = {0, 0, 0, 0}, ffcc_text_none[4] = {0, 0, 0, 0};\n")
+  "namespace melonDS\n{\nextern int FfccWideExtra, FfccHudEdges, FfccHudScale; // ffcc patch\nextern int FfccComputeOutputWidth; // ph patch\n// The HUD's pickup text (a line of the engine A background layer 2 beside the HUD's item icon) follows the HUD: the\n// rectangle (x0, y0, x1, y1) of DS pixels is moved like the HUD cluster is (anchor.xy, x offset, scale), 0 if none.\nstatic float ffcc_text_hud[4] = {0, 192, 0, 1}, ffcc_text_rect[4] = {0, 0, 0, 0}, ffcc_text_none[4] = {0, 0, 0, 0};\n")
 ffcc_patch(gpu2d_gl_src GPU2D_OpenGL.cpp "void GLRenderer2D::SetScaleFactor(int scale)\n{\n    if (scale == ScaleFactor)\n        return;\n\n    ScaleFactor = scale;\n    ScreenW = 256 * scale;\n"
   "void GLRenderer2D::SetScaleFactor(int scale)\n{\n    const int extra = (GPU2D.Num == 0) ? FfccWideExtra : 0; // ffcc patch\n    if (scale == ScaleFactor && ScreenW == (256 + 2 * extra) * scale)\n        return;\n\n    ScaleFactor = scale;\n    ScreenW = (256 + 2 * extra) * scale;\n")
 # (engine B shares engine A's compositor and sprite programs, so the extra width is set per draw, from this renderer's)
@@ -150,6 +161,25 @@ ffcc_patch(gpu2d_gl_src GPU2D_OpenGL.cpp "    glUseProgram(CompositorShader);\n\
   "    glUseProgram(CompositorShader);\n    glUniform1i(glGetUniformLocation(CompositorShader, \"uExtra\"), (ScreenW / ScaleFactor - 256) / 2); // ffcc patch\n    glUniform4fv(glGetUniformLocation(CompositorShader, \"uTextHud\"), 1, ffcc_text_hud);\n    glUniform4fv(glGetUniformLocation(CompositorShader, \"uTextRect\"), 1, GPU2D.Num == 0 ? ffcc_text_rect : ffcc_text_none);\n\n    glBindBufferBase(GL_UNIFORM_BUFFER, 20, LayerConfigUBO);\n")
 ffcc_patch(gpu2d_gl_src GPU2D_OpenGL.cpp "u16* vtxbuf = SpriteVtxData;\n    int vtxnum = 0;\n"
   "u16* vtxbuf = SpriteVtxData;\n    int vtxnum = 0;\n    // ffcc patch: the HUD of engine A. A cluster of touching sprites at the left or right edge of the screen is scaled\n    // (FfccHudScale %) about the screen's corner, and with FfccHudEdges moved out to the edge of the wide picture.\n    {\n        float hud[128][4];\n        for (int i = 0; i < 128; i++) { hud[i][0] = hud[i][1] = hud[i][2] = 0; hud[i][3] = 1; }\n        if (GPU2D.Num == 0 && !window) ffcc_text_rect[0] = ffcc_text_rect[2] = 0;\n        if (GPU2D.Num == 0 && !window && (FfccHudEdges || FfccHudScale != 100))\n        {\n            const int n = NumSprites;\n            int x0[128], y0[128], x1[128], y1[128], par[128];\n            bool ok[128];\n            for (int i = 0; i < n; i++)\n            {\n                auto& sp = SpriteConfig.uOAM[i];\n                par[i] = i;\n                x0[i] = sp.Position[0]; y0[i] = sp.Position[1] & 0xFF;  // (melonDS keeps the wrapped copy: -92 is 164)\n                if (y0[i] >= 224) y0[i] -= 256;\n                x1[i] = x0[i] + sp.BoundSize[0]; y1[i] = y0[i] + sp.BoundSize[1];\n                ok[i] = sp.OBJMode != 2 && x1[i] > 0 && x0[i] < 256 && y1[i] > 0 && y0[i] < 192;\n            }\n            auto find = [&](int a) { while (par[a] != a) a = par[a] = par[par[a]]; return a; };\n            for (int i = 0; i < n; i++)\n                for (int j = i + 1; j < n; j++)\n                    if (ok[i] && ok[j] && x0[i] <= x1[j] + 1 && x0[j] <= x1[i] + 1 && y0[i] <= y1[j] + 1 && y0[j] <= y1[i] + 1)\n                        par[find(j)] = find(i);\n            int cx0[128], cy0[128], cx1[128], cy1[128];\n            for (int i = 0; i < n; i++) { cx0[i] = cy0[i] = 1 << 20; cx1[i] = cy1[i] = -(1 << 20); }\n            for (int i = 0; i < n; i++)\n            {\n                if (!ok[i]) continue;\n                const int r = find(i);\n                cx0[r] = std::min(cx0[r], x0[i]); cy0[r] = std::min(cy0[r], y0[i]);\n                cx1[r] = std::max(cx1[r], x1[i]); cy1[r] = std::max(cy1[r], y1[i]);\n            }\n            const float scale = FfccHudScale / 100.0f;\n            for (int i = 0; i < n; i++)\n            {\n                if (!ok[i]) continue;\n                const int r = find(i);\n                if (cx1[r] - cx0[r] > 150 || cy1[r] - cy0[r] > 110) continue;\n                const bool left = cx0[r] <= 4, right = cx1[r] >= 252;\n                if (left == right) continue;\n                const bool top = cy0[r] <= 24, bottom = !top && cy1[r] >= 168;\n                hud[i][0] = left ? 0.0f : 256.0f;\n                hud[i][1] = top ? 0.0f : bottom ? 192.0f : (cy0[r] + cy1[r]) * 0.5f;\n                hud[i][2] = FfccHudEdges ? (left ? -(float)FfccWideExtra : (float)FfccWideExtra) : 0.0f;\n                hud[i][3] = scale;\n                // The item icon is up: the pickup text is beside it. (The HUD cluster is 145 pixels wide, a dialog's speaker\n                // portrait, also at the bottom left, only 64: its text must stay where the dialog put it.)\n                if (left && bottom && cy0[r] < 152 && cx1[r] - cx0[r] >= 100)\n                {\n                    ffcc_text_hud[0] = 0; ffcc_text_hud[1] = 192; ffcc_text_hud[2] = hud[i][2]; ffcc_text_hud[3] = scale;\n                    ffcc_text_rect[0] = 0; ffcc_text_rect[1] = (float)cy0[r]; ffcc_text_rect[2] = 200; ffcc_text_rect[3] = 162;\n                }\n            }\n        }\n        glUniform4fv(glGetUniformLocation(SpriteShader, \"uHud\"), 128, &hud[0][0]);\n    }\n")
+# The HUD clusters moved out to the wide picture's edges this frame (engine A), so the frontend can map a touch on one
+# back to the DS pixel the game sees: FfccHudMoved = x0, y0, x1, y1 (DS pixels, before the move), x offset.
+ffcc_patch(gpu2d_gl_src GPU2D_OpenGL.cpp "extern int FfccWideExtra, FfccHudEdges, FfccHudScale; // ffcc patch\n"
+  "extern int FfccWideExtra, FfccHudEdges, FfccHudScale; // ffcc patch\nint FfccHudMoved[32][5]; int FfccHudMovedCount = 0; // ph patch\nint FfccHudSides = 0; // ph patch\n")
+# FfccHudSides (Phantom Hourglass): in the HUD's bands (the top 56 rows, the bottom 42) a cluster goes to the side of
+# the screen it is on even when it does not touch the edge (the rupee count beside its icon), and the menu bar that
+# slides out at the bottom (as wide as the screen) stays with the Menu button, at the left.
+ffcc_patch(gpu2d_gl_src GPU2D_OpenGL.cpp "                if (cx1[r] - cx0[r] > 150 || cy1[r] - cy0[r] > 110) continue;\n                const bool left = cx0[r] <= 4, right = cx1[r] >= 252;\n"
+  "                const bool ph_bar = FfccHudSides && cy0[r] >= 150 && cy1[r] - cy0[r] <= 48; // ph patch\n                if ((cx1[r] - cx0[r] > 150 && !ph_bar) || cy1[r] - cy0[r] > 110) continue;\n                bool left = cx0[r] <= 4, right = cx1[r] >= 252;\n                if (FfccHudSides && !left && !right && (cy1[r] <= 56 || cy0[r] >= 150)) { left = cx1[r] <= 128; right = cx0[r] >= 128; }\n                if (ph_bar && left && right) right = false;\n")
+ffcc_patch(gpu2d_gl_src GPU2D_OpenGL.cpp "                if (left && bottom && cy0[r] < 152 && cx1[r] - cx0[r] >= 100)\n"
+  "                if (!FfccHudSides && left && bottom && cy0[r] < 152 && cx1[r] - cx0[r] >= 100) // (ph patch: FFCC's pickup text)\n")
+ffcc_patch(gpu2d_gl_src GPU2D_OpenGL.cpp "        if (GPU2D.Num == 0 && !window) ffcc_text_rect[0] = ffcc_text_rect[2] = 0;\n"
+  "        if (GPU2D.Num == 0 && !window) ffcc_text_rect[0] = ffcc_text_rect[2] = 0;\n        if (GPU2D.Num == 0 && !window) FfccHudMovedCount = 0; // ph patch\n        bool ph_recorded[128] = {};\n")
+ffcc_patch(gpu2d_gl_src GPU2D_OpenGL.cpp "                hud[i][3] = scale;\n"
+  "                hud[i][3] = scale;\n                if (FfccHudEdges && !window && !ph_recorded[r] && FfccHudMovedCount < 32) // ph patch\n                {\n                    ph_recorded[r] = true;\n                    int* m = FfccHudMoved[FfccHudMovedCount++];\n                    m[0] = cx0[r]; m[1] = cy0[r]; m[2] = cx1[r]; m[3] = cy1[r]; m[4] = (int)hud[i][2];\n                }\n")
+# FfccHudSides: a sprite moved last frame that is still in the same place with the same picture keeps its move, even
+# when it now touches something too big to move (the Menu button under a dialogue box).
+ffcc_patch(gpu2d_gl_src GPU2D_OpenGL.cpp "                }\n            }\n        }\n        glUniform4fv(glGetUniformLocation(SpriteShader, \"uHud\"), 128, &hud[0][0]);\n"
+  "                }\n            }\n            if (FfccHudSides) // ph patch\n            {\n                static int ph_prev_n = 0;\n                static int ph_prev[128][5];  // tile, palette, x, y, offset\n                for (int i = 0; i < n; i++)\n                {\n                    if (!ok[i] || hud[i][2] != 0.0f) continue;\n                    const auto& sp = SpriteConfig.uOAM[i];\n                    for (int k = 0; k < ph_prev_n; k++)\n                    {\n                        if (ph_prev[k][0] != (int)sp.TileOffset || ph_prev[k][1] != (int)sp.PalOffset || ph_prev[k][2] != x0[i] || ph_prev[k][3] != y0[i]) continue;\n                        hud[i][0] = 0; hud[i][1] = 0; hud[i][2] = (float)ph_prev[k][4]; hud[i][3] = scale;\n                        if (FfccHudMovedCount < 32)\n                        {\n                            int* m = FfccHudMoved[FfccHudMovedCount++];\n                            m[0] = x0[i]; m[1] = y0[i]; m[2] = x1[i]; m[3] = y1[i]; m[4] = ph_prev[k][4];\n                        }\n                        break;\n                    }\n                }\n                ph_prev_n = 0;\n                for (int i = 0; i < n; i++)\n                {\n                    if (!ok[i] || hud[i][2] == 0.0f) continue;\n                    const auto& sp = SpriteConfig.uOAM[i];\n                    int* q = ph_prev[ph_prev_n++];\n                    q[0] = (int)sp.TileOffset; q[1] = (int)sp.PalOffset; q[2] = x0[i]; q[3] = y0[i]; q[4] = (int)hud[i][2];\n                }\n            }\n        }\n        glUniform4fv(glGetUniformLocation(SpriteShader, \"uHud\"), 128, &hud[0][0]);\n")
 ffcc_write_patched(gpu2d_gl_src ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/GPU2D_OpenGL.cpp)
 
 # NDSCart.cpp: fast cartridge transfers. The game reads the card with the CPU waiting on every word, at the card's
@@ -164,6 +194,33 @@ ffcc_patch(ndscart_src NDSCart.cpp "    if (datasize) cmddelay += ((ROMCnt >> 16
 ffcc_patch(ndscart_src NDSCart.cpp "        delay += ((ROMCnt >> 16) & 0x3F);\n\n    Parent.NDS.ScheduleEvent(ROMTransferEvent, false, xfercycle * delay, ROMTransfer_ReceiveData, 0);\n"
   "        delay += ((ROMCnt >> 16) & 0x3F);\n    if (FfccFastCart) { xfercycle = 1; delay = 4; } // ffcc patch\n\n    Parent.NDS.ScheduleEvent(ROMTransferEvent, false, xfercycle * delay, ROMTransfer_ReceiveData, 0);\n")
 ffcc_write_patched(ndscart_src ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/NDSCart.cpp)
+
+# The compute renderer, also on the phone (ph patch): OpenGL ES 3.2 shaders in GPU3D_Compute.cpp, and its shader header
+# made GLSL ES by gles_compute_fixes.cmake (written beside it, so its #include "GPU3D_Compute_shaders.h" finds that).
+# tools/check_gles_compute.py checks them.
+file(READ ${MS}/GPU3D_Compute.cpp gpu3d_compute_src)
+string(REPLACE "\r\n" "\n" gpu3d_compute_src "${gpu3d_compute_src}")
+ffcc_patch(gpu3d_compute_src GPU3D_Compute.cpp "namespace melonDS\n{\n\nComputeRenderer3D::ComputeRenderer3D"
+  "namespace melonDS\n{\n\nextern int FfccWideExtra; // ph patch\nint FfccComputeOutputWidth = 0; // ph patch: padded width in DS pixels for the 2D compositor's texture coordinates\n\nComputeRenderer3D::ComputeRenderer3D")
+ffcc_patch(gpu3d_compute_src GPU3D_Compute.cpp "    shaderSource += \"#version 430 core\\n\";\n"
+  "#ifdef __ANDROID__\n    // ph patch: OpenGL ES 3.2 on the phone (its shaders made GLSL ES by third_party/gles_compute_fixes.cmake).\n    // Every sampler and image type needs a precision.\n    shaderSource += \"#version 320 es\\n\"\n                    \"precision highp float;\\nprecision highp int;\\nprecision highp usampler2D;\\n\"\n                    \"precision highp usampler2DArray;\\nprecision highp sampler2DArray;\\n\"\n                    \"precision highp uimageBuffer;\\nprecision highp image2D;\\n\";\n#else\n    shaderSource += \"#version 430 core\\n\";\n#endif\n")
+# (The final pass writes the 3D picture as an image; the 2D compositor then samples it as a texture, which needs the
+# texture-fetch barrier too. Desktop drivers forgive its absence; a phone GPU's deferred work need not.)
+ffcc_patch(gpu3d_compute_src GPU3D_Compute.cpp "    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);\n"
+  "    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT); // ph patch\n")
+ffcc_patch(gpu3d_compute_src GPU3D_Compute.cpp "    ScaleFactor = scale;\n    ScreenWidth = 256 * ScaleFactor;\n    ScreenHeight = 192 * ScaleFactor;\n"
+  "    ScaleFactor = scale;\n    ScreenWidth = (256 + 2 * FfccWideExtra) * ScaleFactor; // ph patch: keep the compute target aligned with the widened 3D viewport\n    ScreenHeight = 192 * ScaleFactor;\n")
+ffcc_patch(gpu3d_compute_src GPU3D_Compute.cpp "    CoarseTileW = CoarseTileCountX * TileSize;\n    CoarseTileH = CoarseTileCountY * TileSize;\n"
+  "    CoarseTileW = CoarseTileCountX * TileSize;\n    CoarseTileH = CoarseTileCountY * TileSize;\n    ScreenWidth = ((ScreenWidth + CoarseTileW - 1) / CoarseTileW) * CoarseTileW; // ph patch: pad the hidden edge for whole compute tiles\n    FfccComputeOutputWidth = ScreenWidth / ScaleFactor; // ph patch\n")
+ffcc_patch(gpu3d_compute_src GPU3D_Compute.cpp "    glDispatchCompute(TilesPerLine*TileLines/ClearCoarseBinMaskLocalSize, 1, 1);\n"
+  "    glDispatchCompute((TilesPerLine*TileLines + ClearCoarseBinMaskLocalSize - 1)/ClearCoarseBinMaskLocalSize, 1, 1); // ph patch: clear the padded tile range\n")
+ffcc_write_patched(gpu3d_compute_src ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/GPU3D_Compute.cpp)
+file(READ ${MS}/GPU3D_Compute_shaders.h gpu3d_compute_sh)
+string(REPLACE "\r\n" "\n" gpu3d_compute_sh "${gpu3d_compute_sh}")
+ffcc_patch(gpu3d_compute_sh GPU3D_Compute_shaders.h "const std::string ClearCoarseBinMask =\n    BinningBuffer + R\"(\nlayout (local_size_x = ClearCoarseBinMaskLocalSize) in;\n\nvoid main()\n{\n    BinningMaskAndOffset[BinningCoarseMaskStart + gl_GlobalInvocationID.x*CoarseBinStride+0]"
+  "const std::string ClearCoarseBinMask =\n    BinningBuffer + R\"(\nlayout (local_size_x = ClearCoarseBinMaskLocalSize) in;\n\nvoid main()\n{\n    if (gl_GlobalInvocationID.x >= uint(TilesPerLine*TileLines)) return; // ph patch: rounded dispatch\n    BinningMaskAndOffset[BinningCoarseMaskStart + gl_GlobalInvocationID.x*CoarseBinStride+0]")
+include(${CMAKE_CURRENT_SOURCE_DIR}/gles_compute_fixes.cmake)  # (the GLSL ES fixes, for the phone)
+ffcc_write_patched(gpu3d_compute_sh ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/GPU3D_Compute_shaders.h)
 
 set(melonDS_HOMEPAGE_URL "https://melonds.kuribo64.net")
 set(melonDS_VERSION "1.1")
@@ -188,7 +245,7 @@ add_library(melonds_core STATIC
   ${MS}/sha1/sha1.c ${MS}/tiny-AES-c/aes.c ${MS}/xxhash/xxhash.c ${MS}/blip-buf/blip_buf.c
   # OpenGL renderers (classic and compute-shader 3D, upscaled 2D) and the GL function loader they use.
   ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/GPU_OpenGL.cpp ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/GPU2D_OpenGL.cpp
-  ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/GPU3D_OpenGL.cpp ${MS}/GPU3D_Compute.cpp
+  ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/GPU3D_OpenGL.cpp ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/GPU3D_Compute.cpp
   ${MS}/GPU3D_TexcacheOpenGL.cpp ${MS}/OpenGLSupport.cpp ${MS}/frontend/glad/glad.c)
 set_target_properties(melonds_core PROPERTIES CXX_STANDARD 17)
 target_include_directories(melonds_core SYSTEM PUBLIC ${MS} ${CMAKE_CURRENT_BINARY_DIR}/melonds_gen)
@@ -299,24 +356,6 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|x86_64")
   target_compile_definitions(melonds_core PUBLIC ARCHITECTURE_x86_64=1)
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
   target_compile_definitions(melonds_core PUBLIC ARCHITECTURE_ARM64=1)
-endif()
-
-# Internet for the emulated Wi-Fi: melonDS's user-mode NAT driver (libslirp, bundled with its glib shim), which the
-# runtime's Platform::Net_* hooks use to reach Wi-Fi Connection revival servers.
-set(SLIRP_DIR ${MS}/net/libslirp)
-add_subdirectory(${SLIRP_DIR} ${CMAKE_CURRENT_BINARY_DIR}/libslirp EXCLUDE_FROM_ALL)
-add_library(melonds_net STATIC ${MS}/net/Net.cpp ${MS}/net/Net_Slirp.cpp ${MS}/net/PacketDispatcher.cpp)
-set_target_properties(melonds_net PROPERTIES CXX_STANDARD 17)
-target_include_directories(melonds_net SYSTEM PUBLIC ${MS}/net)
-target_link_libraries(melonds_net PUBLIC melonds_core slirp)
-if(MSVC)
-  target_compile_options(melonds_net PRIVATE /w)
-  target_compile_options(slirp PRIVATE /w)
-  target_compile_definitions(melonds_net PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX __WIN32__)  # (as MinGW)
-  target_include_directories(melonds_net PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/compat)
-else()
-  target_compile_options(melonds_net PRIVATE -w)
-  target_compile_options(slirp PRIVATE -w)
 endif()
 
 # DSi DSP interpreter (unused by NDS games, but referenced by the DSi code that NDS.cpp links against).

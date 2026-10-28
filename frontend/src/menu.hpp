@@ -31,6 +31,7 @@ struct MenuState {
     std::array<std::string, kStateSlots> slot_time{};  // when each slot was saved ("" = empty)
     int fps_corner = 1;        // the FPS counter's corner of the picture (0 top left .. 3 bottom right)
     bool stretch = false;      // the picture stretched over the window
+    bool compute = false;      // with gpu: the compute-shader renderer
 };
 
 enum class MenuResult { None, Changed, Quit, SaveState, LoadState };

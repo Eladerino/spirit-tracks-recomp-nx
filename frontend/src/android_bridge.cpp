@@ -53,6 +53,14 @@ extern "C" JNIEXPORT jboolean JNICALL Java_com_strecomp_st_StInput_nativeGpuFail
     return st::pad::gpu_failed.load() ? JNI_TRUE : JNI_FALSE;
 }
 
+extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeSetCompute(JNIEnv*, jclass, jboolean on) {
+    st::pad::compute.store(on != JNI_FALSE ? 1 : 0);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL Java_com_strecomp_st_StInput_nativeComputeFailed(JNIEnv*, jclass) {
+    return st::pad::compute_failed.load() ? JNI_TRUE : JNI_FALSE;
+}
+
 extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeSetFpsCorner(JNIEnv*, jclass, jint corner) {
     st::pad::fps_corner.store(int(corner) & 3);
 }

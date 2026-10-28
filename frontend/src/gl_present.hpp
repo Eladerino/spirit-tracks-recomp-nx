@@ -26,11 +26,15 @@ public:
     bool gpu_ok() const { return gpu_ok_; }
     // The phone in the background: its window's surface goes, so the context is let go meanwhile.
     void release();
-    void acquire();
+    bool acquire();
+    // Rebuild the presenter after Android replaces or loses its EGL context.
+    bool recover(std::string& error);
+    bool can_display(const ntr::Frame& frame) const;
 
     // One displayed frame: begin, draw, end (shows it).
     void begin(int width, int height);  // window pixels
-    void screen(const ntr::Frame& frame, int layer, const Rect& where, bool smooth);  // layer 0 top, 1 bottom
+    // Layer 0 top, 1 bottom. `wide`: a widescreen picture's wide screen is shown whole (else its middle 256 pixels).
+    void screen(const ntr::Frame& frame, int layer, const Rect& where, bool smooth, bool wide = false);
     void fill(const Rect& where, uint32_t argb);
     // 8x8 characters at `size` pixels each; returns the width drawn.
     float text(float x, float y, float size, const std::string& s, uint32_t argb);
@@ -52,6 +56,8 @@ private:
     std::string version_;
     static constexpr int kThumbLayers = 24;
     unsigned program_ = 0, vao_ = 0, vbo_ = 0, soft_tex_ = 0, font_tex_ = 0, read_fbo_ = 0, thumb_tex_ = 0;
+    mutable unsigned checked_frame_texture_ = 0;
+    mutable bool checked_frame_texture_valid_ = true;
     int u_view_ = -1, u_mode_ = -1, u_layer_ = -1, u_color_ = -1, u_tex_ = -1, u_font_ = -1;
     int u_swap_ = -1;
     int width_ = 1, height_ = 1;
