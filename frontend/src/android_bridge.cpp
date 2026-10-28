@@ -17,6 +17,10 @@ extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeSetMic(JNIE
     st::pad::blow.store(on != JNI_FALSE);
 }
 
+extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeSetMicSample(JNIEnv*, jclass, jboolean on) {
+    st::pad::blow_sample.store(on != JNI_FALSE);
+}
+
 extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeSetLid(JNIEnv*, jclass, jboolean closed) {
     st::pad::lid.store(closed != JNI_FALSE);
 }

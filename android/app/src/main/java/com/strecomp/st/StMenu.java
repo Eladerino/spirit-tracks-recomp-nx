@@ -26,7 +26,7 @@ import java.io.FileReader;
  * visible beside it. Tapping outside it or Back closes it. (Laid out like the PS1 recomp apps' menu.)
  *
  * Screen: touch screen, top screen or both. Display: sharp or smooth picture, FPS counter, renderer (software or
- * GPU) and internal resolution (1×-6× with the GPU renderer). Save states: 12 slots with a picture of each, save and
+ * Compute) and internal resolution (1×-4× with Compute). Save states: 12 slots with a picture of each, save and
  * load. Game: quit. Controls: each on-screen control on or off, opacity, size.
  */
 final class StMenu {
@@ -137,37 +137,37 @@ final class StMenu {
                     prefs.edit().putBoolean("fps", on).apply();
                     activity.setFpsShown(on);
                 });
-        // The renderer: the GPU one (OpenGL ES) draws the DS's 2D and 3D at 2× to 8× its size; the software one is
-        // the DS's own picture (1×).
+        // The renderer: Compute (melonDS's compute-shader renderer, OpenGL ES 3.1+) draws the DS's 2D and 3D at 2× or
+        // 4× its size; the software one is the DS's own picture (1×). (The OpenGL renderer is no longer offered: it drew
+        // stray dots on a Mali GPU. It still draws when a phone cannot run Compute.)
         final boolean failed = StInput.nativeGpuFailed();
         final boolean gpu = prefs.getBoolean("gpu", false) && !failed;
-        final int scale = Math.min(6, prefs.getInt("scale", 2));
-        list.addView(label("Renderer", failed ? "The GPU renderer could not start on this phone: software only."
-                : "GPU draws the game sharper at a higher resolution (uses more battery); Software is the DS's own picture."));
-        final boolean compute = gpu && prefs.getBoolean("compute", false);
-        chips(list, new String[] {"Software", "GPU", "Compute"}, !gpu ? 0 : compute ? 2 : 1, i -> {
-            prefs.edit().putBoolean("gpu", i >= 1).putBoolean("compute", i == 2).apply();
-            StInput.nativeSetCompute(i == 2);
-            StInput.nativeSetVideo(i >= 1, prefs.getInt("scale", 2));
+        final int scale = Math.min(4, prefs.getInt("scale", 2));
+        list.addView(label("Renderer", failed ? "The phone's GPU could not start the game's renderer: software only."
+                : "Compute draws the game sharper at a higher resolution on the GPU (uses more battery); Software is the "
+                + "DS's own picture."));
+        chips(list, new String[] {"Software", "Compute"}, gpu ? 1 : 0, i -> {
+            prefs.edit().putBoolean("gpu", i == 1).putBoolean("compute", true).apply();
+            StInput.nativeSetCompute(true);
+            StInput.nativeSetVideo(i == 1, Math.min(4, prefs.getInt("scale", 2)));
             refresh();
-        }, new boolean[] {true, !failed, !failed});
-        if (compute) {
-            list.addView(label("", StInput.nativeComputeFailed()
-                    ? "Compute cannot run on this phone (its graphics driver lacks a feature it needs): the GPU renderer draws."
-                    : "Compute: the most accurate 3D, up to 4�."));
+        }, new boolean[] {true, !failed});
+        if (gpu && StInput.nativeComputeFailed()) {
+            list.addView(label("", "Compute cannot run on this phone (its graphics driver lacks a feature it needs): "
+                    + "the OpenGL renderer draws instead."));
         }
-        list.addView(label("Internal resolution", gpu ? "How many times the DS's resolution the GPU renderer draws at."
-                : "With the GPU renderer."));
-        // (Up to 6×: at 8× the renderer's buffers ran a Pixel 8 out of graphics memory.)
-        final int[] scales = {1, 2, 4, 6};
+        list.addView(label("Internal resolution", gpu ? "How many times the DS's resolution Compute draws at."
+                : "With Compute."));
+        // (Up to 4×: Compute's tile memory at 6× is some 300 MB of a phone's graphics memory.)
+        final int[] scales = {1, 2, 4};
         int chosen = 0;
         for (int i = 1; i < scales.length; i++) if (gpu && scales[i] == scale) chosen = i;
-        chips(list, new String[] {"1×", "2×", "4×", "6×"}, chosen, i -> {
+        chips(list, new String[] {"1×", "2×", "4×"}, chosen, i -> {
             if (i == 0) return;
             prefs.edit().putInt("scale", scales[i]).apply();
             StInput.nativeSetVideo(true, scales[i]);
             refresh();
-        }, new boolean[] {!gpu, gpu, gpu, gpu});
+        }, new boolean[] {!gpu, gpu, gpu});
 
         states(list);
 

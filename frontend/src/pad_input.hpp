@@ -8,6 +8,7 @@ namespace st::pad {
 
 extern std::atomic<uint32_t> held;  // DS buttons held on the pad (ntr::Key bits)
 extern std::atomic<bool> blow;      // the Mic button: the microphone hears blowing
+extern std::atomic<bool> blow_sample; // the Blow button: the microphone hears the bundled blow sample
 extern std::atomic<bool> lid;       // the Lid button: the DS is closed
 extern std::atomic<int> show;       // a screen layout asked for (0 touch screen, 1 top screen, 2 both); -1: none
 extern std::atomic<int> smooth;     // the picture filter asked for (0 sharp pixels, 1 smooth); -1: none

@@ -30,7 +30,8 @@ import java.util.List;
 public final class DsPad extends View {
     private static final int KIND_BUTTON = 0, KIND_DPAD = 1, KIND_SHOULDER = 2, KIND_TOOL = 3;
     private static final int LEFT = -1, RIGHT = 1;
-    private static final int TOOL_MENU = 1, TOOL_MIC = 2, TOOL_LID = 3, TOOL_TOP = 4, TOOL_ROTATE = 5;
+    private static final int TOOL_MENU = 1, TOOL_MIC = 2, TOOL_LID = 3, TOOL_TOP = 4, TOOL_ROTATE = 5,
+            TOOL_MIC_SAMPLE = 6;
     private static final float HIT_GROW = 1.25f;  // a thumb lands off-centre: the hit area is a bit larger than the drawing
     static final String PREFS = "st_pad";
 
@@ -59,6 +60,7 @@ public final class DsPad extends View {
             {"shoulders", "L and R", "0"},
             {"startselect", "Start and Select", "0"},
             {"mic", "Mic button", "1"},
+            {"mic_sample", "Blow button (the Spirit Flute)", "1"},
             {"lid", "Lid button", "1"},
             {"top", "Top screen button", "1"},
             {"rotate", "Rotate button (portrait, both screens)", "1"},
@@ -75,7 +77,7 @@ public final class DsPad extends View {
             text = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
     private int sentButtons = -1;
-    private boolean micOn, lidClosed, topShown, bothShown, hiddenForController;
+    private boolean micOn, micSampleOn, lidClosed, topShown, bothShown, hiddenForController;
     private StMenu menu;  // the ≡ button's panel (GameActivity sets it)
 
     public DsPad(Activity activity) {
@@ -98,6 +100,7 @@ public final class DsPad extends View {
         controls.add(new Control(KIND_BUTTON, StInput.START, 0, "START", "startselect", RIGHT, 0.24f, 0.92f, 0.045f));
         controls.add(new Control(KIND_TOOL, 0, TOOL_MIC, "MIC", "mic", RIGHT, 0.07f, 0.08f, 0.05f));
         controls.add(new Control(KIND_TOOL, 0, TOOL_LID, "LID", "lid", RIGHT, 0.19f, 0.08f, 0.05f));
+        controls.add(new Control(KIND_TOOL, 0, TOOL_MIC_SAMPLE, "BLOW", "mic_sample", RIGHT, 0.31f, 0.08f, 0.05f));
         text.setTextAlign(Paint.Align.CENTER);
         text.setFakeBoldText(true);
         edge.setStyle(Paint.Style.STROKE);
@@ -262,6 +265,7 @@ public final class DsPad extends View {
 
     private boolean isHeld(Control c) {
         if (c.tool == TOOL_MIC) return micOn;
+        if (c.tool == TOOL_MIC_SAMPLE) return micSampleOn;
         if (c.tool == TOOL_LID) return lidClosed;
         if (c.tool == TOOL_TOP) return topShown;
         if (c.tool == TOOL_ROTATE) return portrait();
@@ -368,6 +372,7 @@ public final class DsPad extends View {
             switch (c.tool) {
                 case TOOL_MENU: if (menu != null) menu.open(); return;
                 case TOOL_MIC: micOn = true; fingers.put(id, c); StInput.nativeSetMic(true); return;
+                case TOOL_MIC_SAMPLE: micSampleOn = true; fingers.put(id, c); StInput.nativeSetMicSample(true); return;
                 case TOOL_LID: lidClosed = !lidClosed; StInput.nativeSetLid(lidClosed); return;
                 case TOOL_TOP: setScreen(topShown ? StInput.SCREEN_TOUCH : StInput.SCREEN_TOP); return;
                 case TOOL_ROTATE:
@@ -403,6 +408,10 @@ public final class DsPad extends View {
             micOn = false;
             StInput.nativeSetMic(false);
         }
+        if (c != null && c.tool == TOOL_MIC_SAMPLE) {
+            micSampleOn = false;
+            StInput.nativeSetMicSample(false);
+        }
     }
 
     private void send() {
@@ -420,7 +429,9 @@ public final class DsPad extends View {
         fingers.clear();
         dpadBits.clear();
         micOn = false;
+        micSampleOn = false;
         StInput.nativeSetMic(false);
+        StInput.nativeSetMicSample(false);
         send();
         invalidate();
     }

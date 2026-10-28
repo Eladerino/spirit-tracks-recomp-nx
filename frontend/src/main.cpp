@@ -12,7 +12,7 @@
 // on the main thread (software renderer only).
 //
 //   SpiritTracks.exe <rom.nds> [--save-file F] [--data-dir D] [--input-script S] [--exit-after-frames N]
-//                        [--fullscreen] [--unpaced] [--module M] [--read-only-save] [--renderer software|gpu|compute]
+//                        [--fullscreen] [--unpaced] [--module M] [--read-only-save] [--renderer software|compute|opengl]
 //                        [--scale 2|4|6|8]
 #include <SDL3/SDL.h>
 #ifdef __ANDROID__
@@ -54,15 +54,10 @@
 namespace fs = std::filesystem;
 using st::Layout;
 
-#ifdef __ANDROID__
-namespace melonDS {
-extern int FfccDebug3D;  // DEBUG (temporary): GPU renderer experiments (third_party/CMakeLists.txt)
-}
-#endif
-
 namespace st::pad {
 std::atomic<uint32_t> held{0};
 std::atomic<bool> blow{false};
+std::atomic<bool> blow_sample{false};
 std::atomic<bool> lid{false};
 std::atomic<int> show{-1};
 std::atomic<int> smooth{-1};
@@ -133,7 +128,8 @@ struct Settings {
     bool smooth = false;  // linear filtering instead of sharp pixels
     bool fps = false;
     bool gpu = false;     // the GPU renderer (PC)
-    bool compute = false; // with gpu: melonDS's compute-shader renderer (OpenGL 4.3 / ES 3.1), else its OpenGL one
+    bool compute = true;  // with gpu: melonDS's compute-shader renderer (OpenGL 4.3 / ES 3.1); false (--renderer opengl,
+                          // for testing only): its OpenGL one, which also draws when Compute cannot run
     int scale = 4;        // its internal resolution
     int slot = 1;         // the save state slot chosen (1-12)
     int fps_corner = 1;   // the FPS counter's corner of the picture (0 top left, 1 top right, 2 bottom left, 3 bottom right)
@@ -152,7 +148,7 @@ Settings load_settings(const fs::path& p) {
         else if (k == "fullscreen") s.fullscreen = v == "1";
         else if (k == "smooth") s.smooth = v == "1";
         else if (k == "fps") s.fps = v == "1";
-        else if (k == "renderer") s.gpu = v == "gpu" || v == "compute", s.compute = v == "compute";
+        else if (k == "renderer") s.gpu = v != "software", s.compute = v != "opengl";  // ("gpu": Compute now)
         else if (k == "scale") s.scale = std::atoi(v.c_str());
         else if (k == "slot") s.slot = std::clamp(std::atoi(v.c_str()), 1, kSlots);
         else if (k == "fps_corner") s.fps_corner = std::clamp(std::atoi(v.c_str()), 0, 3);
@@ -171,7 +167,7 @@ void save_settings(const fs::path& p, const Settings& s) {
     f << "fullscreen=" << (s.fullscreen ? 1 : 0) << "\n";
     f << "smooth=" << (s.smooth ? 1 : 0) << "\n";
     f << "fps=" << (s.fps ? 1 : 0) << "\n";
-    f << "renderer=" << (s.gpu ? (s.compute ? "compute" : "gpu") : "software") << "\n";
+    f << "renderer=" << (s.gpu ? (s.compute ? "compute" : "opengl") : "software") << "\n";
     f << "scale=" << s.scale << "\n";
     f << "slot=" << s.slot << "\n";
     f << "fps_corner=" << s.fps_corner << "\n";
@@ -269,6 +265,7 @@ struct Shared {
     std::atomic<int> touch_x{0}, touch_y{0};
     std::atomic<bool> fast_forward{false};
     std::atomic<bool> blow{false};  // the player's "blow into the mic" input is held
+    std::atomic<bool> blow_sample{false};  // the bundled blow sample is held (the Spirit Flute and other blowing)
     std::atomic<bool> quit{false};
     std::atomic<bool> paused{false};  // the app is in the background (Android): the game waits
     std::atomic<bool> background_event{false}, foreground_event{false};  // (Android: from watch_android_lifecycle)
@@ -374,6 +371,7 @@ public:
         bool touching = live && s_.touching.load();
         int tx = s_.touch_x.load(), ty = s_.touch_y.load();
         bool blow = live && s_.blow.load();
+        const bool blow_sample = live && s_.blow_sample.load();
         bool quit = false;
         for (const ScriptStep& st : script_) {
             if (st.frame == f) {
@@ -397,6 +395,7 @@ public:
         if (const int slot = s_.state_save.exchange(0)) start_save(slot);
         if (const int slot = s_.state_load.exchange(0)) start_load(slot);
         ntr::set_mic_blow(blow);
+        ntr::set_mic_sample(blow_sample);
         rt_->set_buttons(held, pressed);
         if (touching)
             rt_->touch(std::clamp(tx, 0, kW - 1), std::clamp(ty, 0, kH - 1));
@@ -838,8 +837,8 @@ int main(int argc, char** argv) {
 
     Settings settings = testing ? Settings{} : load_settings(settings_path);
     if (fullscreen_arg) settings.fullscreen = true;
-    if (renderer_arg == "gpu") settings.gpu = true, settings.compute = false;
-    else if (renderer_arg == "compute") settings.gpu = settings.compute = true;
+    if (renderer_arg == "gpu" || renderer_arg == "compute") settings.gpu = settings.compute = true;
+    else if (renderer_arg == "opengl") settings.gpu = true, settings.compute = false;
     else if (renderer_arg == "software") settings.gpu = false;
     if (std::find(std::begin(kScales), std::end(kScales), scale_arg) != std::end(kScales)) settings.scale = scale_arg;
 #ifdef __ANDROID__
@@ -977,23 +976,7 @@ int main(int argc, char** argv) {
     bool finger_down = false;
     float finger_x = 0, finger_y = 0;  // window pixels
     std::vector<uint32_t> pixels(size_t(kW) * kH * 2);
-#ifdef __ANDROID__
-    uint64_t debug3d_checked = 0;
-#endif
     while (!shared.game_done) {
-#ifdef __ANDROID__
-        // DEBUG (temporary): GPU renderer experiments, a number in files/debug3d.txt read once a second (set over adb,
-        // see ST-PORT.md "GPU dots"): 1 no fog pass, 2 no fog where the depth is the far plane, 4 no line polygons.
-        if (const uint64_t now = SDL_GetTicks(); now - debug3d_checked >= 1000) {
-            debug3d_checked = now;
-            int want = 0;
-            if (std::ifstream f(data_dir / "debug3d.txt"); f) f >> want;
-            if (want != melonDS::FfccDebug3D) {
-                melonDS::FfccDebug3D = want;
-                std::fprintf(stderr, "debug3d: %d\n", want);
-            }
-        }
-#endif
 #ifdef __ANDROID__
         // Android: in the background the game waits and the save is written at once (the app may be killed).
         if (shared.background_event.exchange(false)) {
@@ -1088,9 +1071,10 @@ int main(int argc, char** argv) {
         const bool* keys = SDL_GetKeyboardState(nullptr);
         shared.held = (menu_open ? 0u : keyboard_buttons()) | gamepad_buttons(pad) | st::pad::held.load();
         shared.fast_forward = !menu_open && keys[SDL_SCANCODE_GRAVE];
-        // The microphone: M, or the right stick's click, stands for blowing into it (or shouting).
+        // The microphone: M, or the right stick's click, is generated noise (shouting); N plays the bundled blow sample.
         shared.blow = (!menu_open && keys[SDL_SCANCODE_M]) ||
                       (pad && SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_RIGHT_STICK)) || st::pad::blow.load();
+        shared.blow_sample = (!menu_open && keys[SDL_SCANCODE_N]) || st::pad::blow_sample.load();
         // The lid: closed while C is held (or the pad's Lid button is on).
         ntr::set_lid_closed((!menu_open && keys[SDL_SCANCODE_C]) || st::pad::lid.load());
         // Choices from the Android app's on-screen pad and menu.

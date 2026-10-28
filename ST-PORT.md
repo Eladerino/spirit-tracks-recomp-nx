@@ -60,29 +60,27 @@ recompressed ARM9) and the file layout all change. The decomp's config describes
   listed functions) is found (`recomp_report.txt` in each build folder). If needed, add the hack's functions to a
   variant-specific list (the recompiler's discovery already follows BL targets).
 
-## GPU dots (open)
+## GPU dots (fixed by Compute)
 
-On a Pixel 8 (Mali-G715, OpenGL ES 3.2) the GPU renderer shows single cyan pixels along polygon edges (Link's house);
-the software renderer, the PC's GPU renderer (NVIDIA) and Phantom Hourglass on the same phone are clean. The colour
-(DS 19,31,29) is the game's fog colour: the house turns on DS fog (DISP3DCNT 0x6B9, fog offset 0xFA, shift 6, density
-ramping to 0x7F), so those pixels are fogged as if they were at the far plane. Not shader precision (every GLES shader is
-already highp).
-
-A temporary debug switch finds the cause: the app reads a number from `files/debug3d.txt` once a second and logs
-`debug3d: N` (bits: 1 no fog pass; 2 no fog where the depth is the far plane, GLES fog shader only; 4 no line
-polygons). Set it over USB while the game runs (0 is normal):
-
-    adb shell "run-as com.strecomp.st sh -c 'echo 1 > files/debug3d.txt'"
-
-1 should remove the dots (confirms the fog); 2 removing them means those pixels hold the far-plane depth; 4 removing them
-means line polygons write that depth. Remove the switch (frontend/src/main.cpp, third_party/CMakeLists.txt,
-third_party/gles_shader_fixes.cmake: every "DEBUG (temporary)") with the fix.
+On a Pixel 8 (Mali-G715, OpenGL ES 3.2) melonDS's OpenGL renderer showed single cyan pixels along polygon edges (Link's
+house): the game's fog colour (DS 19,31,29) on pixels fogged as if at the far plane. The software renderer, the PC's
+OpenGL renderer and Phantom Hourglass on the same phone were clean. The compute renderer (ported from PH, 2026-10-28) has
+none; the owner confirmed it on the phone. The menus now offer Software / Compute only; the OpenGL renderer draws only
+when a phone cannot run Compute (or with `--renderer opengl`). The temporary debug switch (09ca021) is removed.
 
 ## History
 
 - 2026-10-12: project created from ph-recomp; config imported from zeldaret/st; hooks matched; DS Protect hooks;
   variants and BPS patcher; module bound to its ROM. Dry runs of every script OK on the work PC; C++ (PC + NDK) and Java
   syntax-checked. Not built yet.
+
+- 2026-10-28: Phantom Hourglass's engine graphics work ported (714974c): the compute renderer on the phone (OpenGL ES
+  3.2, `third_party/gles_compute_fixes.cmake`, `tools/check_gles_compute.py`), Renderer Software / GPU / Compute in both
+  menus (phone Compute up to 4x), texture wrap modes through sampler objects, the GL context recovered after the app
+  returns from the background; wireless removed as in PH. The blow sample (`runtime/src/mic_sample_data.hpp`, the
+  owner's "PERFECT BLOW FOR DS EMULATORS.wav", as in PH): N on PC, the BLOW button on the phone, for the Spirit Flute.
+  The start screen's picture is drawn in code (`LauncherArt.java`, our own drawing). 5-BUILD-ANDROID uses the Android
+  SDK's newest CMake (3.28+) when none is installed (cmake;3.31.6 added to the drive's SDK).
 
 ## Next
 

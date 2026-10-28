@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.util.TypedValue;
@@ -50,9 +51,13 @@ public final class LauncherActivity extends Activity {
         final LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.CENTER);
-        final int pad = dp(24);
+        final int pad = dp(20);
         box.setPadding(pad, pad, pad, pad);
-        box.setBackgroundColor(0xFF101014);
+        // A dark glass panel over the picture (LauncherArt), so the text reads on the bright sky.
+        final GradientDrawable panel = new GradientDrawable();
+        panel.setColor(0xC8101820);
+        panel.setCornerRadius(dp(18));
+        box.setBackground(panel);
 
         final TextView title = new TextView(this);
         title.setText("Spirit Tracks");
@@ -92,16 +97,23 @@ public final class LauncherActivity extends Activity {
                 + "own USA dump; the PC scripts copy it in for you). A save from melonDS (.sav) can be "
                 + "imported; the save already here is kept as a dated backup. In the game, touch the picture: it is "
                 + "the stylus. The ≡ button opens the menu.");
-        hint.setTextColor(0xFF707078);
+        hint.setTextColor(0xFFA8B0B8);
         hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         hint.setGravity(Gravity.CENTER);
         hint.setPadding(0, dp(16), 0, 0);
-        box.addView(hint, new LinearLayout.LayoutParams(dp(420), ViewGroup.LayoutParams.WRAP_CONTENT));
+        // (No wider than the screen leaves inside the panel: on a phone held upright 420 dp is too wide.)
+        final int room = getResources().getDisplayMetrics().widthPixels - 2 * dp(16) - 2 * pad;
+        box.addView(hint, new LinearLayout.LayoutParams(Math.min(dp(420), room), ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        final LinearLayout page = new LinearLayout(this);
+        page.setGravity(Gravity.CENTER);
+        final int margin = dp(16);
+        page.setPadding(margin, margin, margin, margin);
+        page.addView(box, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         final ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(0xFF101014);
+        scroll.setBackground(new LauncherArt());
         scroll.setFillViewport(true);
-        scroll.addView(box);
+        scroll.addView(page);
         setContentView(scroll);
         refresh();
     }

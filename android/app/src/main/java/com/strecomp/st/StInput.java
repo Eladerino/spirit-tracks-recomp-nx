@@ -17,6 +17,9 @@ public final class StInput {
     /** The Mic button: while on, the microphone hears blowing. */
     public static native void nativeSetMic(boolean on);
 
+    /** The Blow button: while on, the microphone hears the bundled blow sample (the Spirit Flute). */
+    public static native void nativeSetMicSample(boolean on);
+
     /** The Lid button: the DS closed (on) or open. */
     public static native void nativeSetLid(boolean closed);
 

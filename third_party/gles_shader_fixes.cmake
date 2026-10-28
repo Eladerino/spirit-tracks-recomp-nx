@@ -50,10 +50,6 @@ elseif(sh STREQUAL "3DFinalPassEdgeFS")
   gles_fix("ret.a = 1;" "ret.a = 1.0;")
 elseif(sh STREQUAL "3DFinalPassFogFS")
   gles_fix("if (attr.b != 0)" "if (attr.b != 0.0)")
-  # DEBUG (temporary): FfccDebug3D & 2 leaves out the fog where the depth is the far plane (third_party/CMakeLists.txt).
-  gles_fix("out vec4 oColor;\n" "out vec4 oColor;\nuniform int uFfccDebug;\n")
-  gles_fix("    if (attr.b != 0.0) ret = CalculateFog(depth.r);\n"
-           "    if (attr.b != 0.0) ret = CalculateFog(depth.r);\n    if ((uFfccDebug & 2) != 0 && depth.r >= 0.9999) ret = vec4(0.0);\n")
 elseif(sh STREQUAL "3DRenderVS")
   # vPolygonAttr comes as GL_UNSIGNED_INT (glVertexAttribIPointer), its texture layer word 0xFFFFnnnn. Desktop GL takes
   # it into an ivec3 bit for bit; on ES an int input fed unsigned data is undefined, and Mali clamps it to 0x7FFFFFFF:
