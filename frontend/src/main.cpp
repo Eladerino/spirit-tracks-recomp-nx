@@ -1,10 +1,14 @@
 // The Legend of Zelda: Spirit Tracks -- native recomp, the program (PC and Android).
 //
 // One window showing one DS screen at a time (the touch screen by default), scaled to fit at the DS's aspect ratio
-// (black bars, never cropped). The mouse or a finger is the stylus. Microphone: hold M (or click the right stick) to
-// blow into it. Lid: hold C to close the DS. F1 or Esc opens the menu (PC); the Android app has its own (StMenu).
+// (black bars, never cropped). The mouse or a finger is the stylus. Microphone: hold M (or click the right stick) for
+// generated noise, or N / BLOW for the bundled blow sample. Lid: hold C to close the DS. F1 or Esc opens the menu (PC);
+// the Android app has its own (StMenu).
 // Save states: 12 slots in <data>/states (slot-NN.state, .png both screens when taken, .txt when); F5 saves to the slot
 // chosen in the menu, F8 loads it. The cartridge save (the game's own saving) is never touched by them.
+// Continue: quitting (and on the phone, going to the background) first writes a "resume" state (resume.state, .png,
+// .txt in the same folder); --continue, the PC menu's Continue or F9 loads it. When the game saves itself later in a
+// session the resume state is older than the save, so it is deleted (and written again at the next quit).
 //
 // The game runs on a thread of its own, which also draws, with OpenGL (gl_present.cpp; OpenGL ES on the phone): the
 // runtime's GPU renderer (2x-8x) needs the context current on the thread that runs the game. The main thread handles
@@ -13,7 +17,8 @@
 //
 //   SpiritTracks.exe <rom.nds> [--save-file F] [--data-dir D] [--input-script S] [--exit-after-frames N]
 //                        [--fullscreen] [--unpaced] [--module M] [--read-only-save] [--renderer software|compute|opengl]
-//                        [--scale 2|4|6|8]
+//                        [--scale 2|4|6|8] [--continue] [--wide] [--wide21] [--textures pixels|smooth|sharp]
+//                        [--fixes 0-3]
 #include <SDL3/SDL.h>
 #ifdef __ANDROID__
 #include <SDL3/SDL_main.h>  // (SDL's Android activity calls SDL_main in libmain.so)
@@ -44,6 +49,7 @@
 #include "ntr/rom.hpp"
 #include "ntr/runtime.hpp"
 #include "pad_input.hpp"
+#include "st_stick.hpp"
 #include "st_hooks.hpp"
 #include "png.hpp"
 #include "gl_present.hpp"
@@ -69,8 +75,15 @@ std::atomic<int> state_save{0};
 std::atomic<int> state_load{0};
 std::atomic<int> video{-1};
 std::atomic<bool> gpu_failed{false};
+std::atomic<bool> resume_request{false};
+std::atomic<int> stick_x{0}, stick_y{0};
+std::atomic<int> stick_mode{-1};
+std::atomic<int> textures{-1};
+std::atomic<int> fixes{-1};
 std::atomic<int> compute{-1};
 std::atomic<bool> compute_failed{false};
+std::atomic<bool> resume_done{false};
+std::atomic<int> wide_mode{-1};
 }  // namespace st::pad
 
 namespace {
@@ -80,12 +93,27 @@ constexpr int kW = 256, kH = 192;
 constexpr double kFrameSeconds = 560190.0 / 33513982.0;  // one DS frame (59.8261 Hz)
 constexpr int kScales[] = {2, 4, 6, 8};
 constexpr int kSlots = 12;  // save state slots
+constexpr int kWideExtra = 43;  // widescreen (a test): 256 + 2 x 43 = 342 pixels across 192, about 16:9
+constexpr int kUltraWideExtra = 96;  // 256 + 2 x 96 = 448 pixels across 192, 21:9
+constexpr int kResumeSlot = 99;  // the state written at quit, for Continue (resume.*)
+constexpr uint64_t kResumeStaleFrames = 1800;  // a cartridge save after this much play makes the resume state old
 
 // ---- save state slots: <dir>/slot-NN.state, .png (both screens, 256 x 384) and .txt (when, "MM-DD HH:MM") ----------
 fs::path slot_file(const fs::path& dir, int slot, const char* ext) {
     char name[32];
-    std::snprintf(name, sizeof name, "slot-%02d.%s", slot, ext);
+    if (slot == kResumeSlot) std::snprintf(name, sizeof name, "resume.%s", ext);
+    else std::snprintf(name, sizeof name, "slot-%02d.%s", slot, ext);
     return dir / name;
+}
+
+// When the resume state was written ("" = there is none).
+std::string resume_time(const fs::path& dir) {
+    std::error_code ec;
+    if (!fs::exists(slot_file(dir, kResumeSlot, "state"), ec)) return {};
+    std::ifstream f(slot_file(dir, kResumeSlot, "txt"));
+    std::string t;
+    if (!std::getline(f, t) || t.empty()) t = "saved";
+    return t;
 }
 
 // When each slot was saved ("" = empty).
@@ -127,13 +155,18 @@ struct Settings {
     bool fullscreen = false;
     bool smooth = false;  // linear filtering instead of sharp pixels
     bool fps = false;
-    bool gpu = false;     // the GPU renderer (PC)
+    bool gpu = true;      // a GPU renderer (Compute), else the software one
     bool compute = true;  // with gpu: melonDS's compute-shader renderer (OpenGL 4.3 / ES 3.1); false (--renderer opengl,
                           // for testing only): its OpenGL one, which also draws when Compute cannot run
     int scale = 4;        // its internal resolution
     int slot = 1;         // the save state slot chosen (1-12)
     int fps_corner = 1;   // the FPS counter's corner of the picture (0 top left, 1 top right, 2 bottom left, 3 bottom right)
     bool stretch = false; // the picture stretched over the whole window (else the DS's shape, with bars)
+    bool stick = false;   // the analog stick moves Link (a gamepad's left stick, the phone's on-screen stick)
+    bool wide = false;    // widescreen, 16:9 (a test; GPU and Compute renderers)
+    int wide_mode = 1;    // 1: 16:9, 2: 21:9
+    int textures = 0;     // the 3D's textures with the GPU renderer: 0 the DS's pixels, 1 smooth, 2 sharp
+    int fixes = 0;        // 3D fixes, bits: 1 fewer seams (GPU renderer's better polygons), 2 stable textures (no warp)
 };
 
 Settings load_settings(const fs::path& p) {
@@ -153,6 +186,11 @@ Settings load_settings(const fs::path& p) {
         else if (k == "slot") s.slot = std::clamp(std::atoi(v.c_str()), 1, kSlots);
         else if (k == "fps_corner") s.fps_corner = std::clamp(std::atoi(v.c_str()), 0, 3);
         else if (k == "stretch") s.stretch = v == "1";
+        else if (k == "stick") s.stick = v == "1";
+        else if (k == "wide") s.wide = v == "1";
+        else if (k == "wide_mode") s.wide_mode = std::clamp(std::atoi(v.c_str()), 1, 2);
+        else if (k == "textures") s.textures = std::clamp(std::atoi(v.c_str()), 0, 2);
+        else if (k == "fixes") s.fixes = std::clamp(std::atoi(v.c_str()), 0, 3);
     }
     if (std::find(std::begin(kScales), std::end(kScales), s.scale) == std::end(kScales)) s.scale = 4;
     return s;
@@ -172,6 +210,11 @@ void save_settings(const fs::path& p, const Settings& s) {
     f << "slot=" << s.slot << "\n";
     f << "fps_corner=" << s.fps_corner << "\n";
     f << "stretch=" << (s.stretch ? 1 : 0) << "\n";
+    f << "stick=" << (s.stick ? 1 : 0) << "\n";
+    f << "wide=" << (s.wide ? 1 : 0) << "\n";
+    f << "wide_mode=" << s.wide_mode << "\n";
+    f << "textures=" << s.textures << "\n";
+    f << "fixes=" << s.fixes << "\n";
 }
 
 ntr::VideoSettings video_for(const Settings& s) {
@@ -181,6 +224,13 @@ ntr::VideoSettings video_for(const Settings& s) {
 #ifdef __ANDROID__
     if (s.compute) v.scale = std::min(v.scale, 4);  // (its tile memory at 6x: some 300 MB of a phone's graphics memory)
 #endif
+    v.wide_extra = s.gpu && s.wide ? (s.wide_mode == 2 ? kUltraWideExtra : kWideExtra) : 0;
+    v.hud_edges = v.wide_extra > 0;  // the HUD at the wide picture's edges (touches on it are mapped back: to_ds)
+    v.hud_sides = false;             // (Phantom Hourglass's own HUD placement)
+    v.texture_smoothing = s.textures == 1 ? ntr::TextureSmoothing::Smooth
+                          : s.textures == 2 ? ntr::TextureSmoothing::Sharp : ntr::TextureSmoothing::Off;
+    v.better_polygons = (s.fixes & 1) != 0;  // (seams between polygons in upscaled 3D)
+    v.stable_textures = (s.fixes & 2) != 0;  // (textures the DS bends with the view, smeared)
     return v;
 }
 
@@ -265,10 +315,18 @@ struct Shared {
     std::atomic<int> touch_x{0}, touch_y{0};
     std::atomic<bool> fast_forward{false};
     std::atomic<bool> blow{false};  // the player's "blow into the mic" input is held
-    std::atomic<bool> blow_sample{false};  // the bundled blow sample is held (the Spirit Flute and other blowing)
+    std::atomic<bool> blow_sample{false};
+    std::atomic<bool> stick_on{false};       // the analog stick moves Link (st_stick.hpp)
+    std::atomic<int> stick_x{0}, stick_y{0};  // where it is, -1000..1000 (y down)
+    // Widescreen as drawn: the extra pixels each side of the wide screen (0: none), and its layer (0 top, 1 bottom).
+    std::atomic<int> wide_extra{0}, wide_layer{1};
+    std::mutex hud_mutex;  // the HUD clusters moved to the edges in the frame shown (st::to_ds)
+    std::array<st::HudMove, 32> hud{};
+    int hud_count = 0;
     std::atomic<bool> quit{false};
     std::atomic<bool> paused{false};  // the app is in the background (Android): the game waits
-    std::atomic<bool> background_event{false}, foreground_event{false};  // (Android: from watch_android_lifecycle)
+    std::atomic<bool> resume_done{false};  // the resume state asked for at quit / going to the background is written (or failed)
+    std::atomic<bool> background_event{false}, foreground_event{false};
 
     // The last finished frame from the software renderer, both screens stacked (top, then bottom).
     std::mutex frame_mutex;
@@ -296,11 +354,11 @@ struct Shared {
     std::string note;
     uint64_t note_until = 0;
     std::atomic<int> states_version{0};
-    void say(const std::string& text) {
+    void say(const std::string& text, uint64_t ms = 2500) {
         std::fprintf(stderr, "state: %s\n", text.c_str());
         std::lock_guard<std::mutex> lock(note_mutex);
         note = text;
-        note_until = SDL_GetTicks() + 2500;
+        note_until = SDL_GetTicks() + ms;
     }
     std::string current_note() {
         std::lock_guard<std::mutex> lock(note_mutex);
@@ -325,7 +383,7 @@ bool SDLCALL watch_android_lifecycle(void* userdata, SDL_Event* event) {
     switch (event->type) {
         case SDL_EVENT_WILL_ENTER_BACKGROUND:
         case SDL_EVENT_DID_ENTER_BACKGROUND:
-            shared.paused = true;
+            if (!shared.paused.exchange(true)) shared.resume_done = false;
             shared.background_event = true;
             std::fprintf(stderr, "android: lifecycle background event %u\n", unsigned(event->type));
             break;
@@ -348,6 +406,9 @@ public:
         : s_(s), window_(window), audio_(audio), script_(std::move(script)), exit_after_(exit_after), unpaced_(unpaced) {}
 
     void attach(ntr::Runtime* rt) { rt_ = rt; }
+    // Continue: load the resume state as soon as the game runs. `resume`: write one when the app quits or goes to the
+    // background (not in scripted test runs).
+    void set_resume(bool continue_at_start, bool resume) { continue_ = continue_at_start, resume_ = resume; }
     void set_gl(st::GlPresenter* gl) { gl_ = gl; }
 
     bool on_frame(const ntr::Frame& frame) override {
@@ -360,7 +421,7 @@ public:
             std::memcpy(s_.frame.data() + kW * kH, frame.bottom, sizeof(uint32_t) * kW * kH);
             s_.frame_new = true;
         }
-        if (gl_) draw(frame);
+        if (gl_ && !s_.paused.load()) draw(frame);  // (in the background the window may be gone)
 
         // Input for the next frame: the player's, plus any script steps active then.
         // (A scripted run takes only the script's input, so it does the same thing whatever happens in the window.)
@@ -371,7 +432,13 @@ public:
         bool touching = live && s_.touching.load();
         int tx = s_.touch_x.load(), ty = s_.touch_y.load();
         bool blow = live && s_.blow.load();
-        const bool blow_sample = live && s_.blow_sample.load();
+        bool blow_sample = live && s_.blow_sample.load();
+        if (live && s_.stick_on.load()) {  // (a finger on the touch screen comes first)
+            const float sx = touching ? 0.0f : float(s_.stick_x.load()) / 1000.0f;
+            const float sy = touching ? 0.0f : float(s_.stick_y.load()) / 1000.0f;
+            int x = 0, y = 0;
+            if (stick_.touch_for(*rt_, sx, sy, x, y)) touching = true, tx = x, ty = y;
+        }
         bool quit = false;
         for (const ScriptStep& st : script_) {
             if (st.frame == f) {
@@ -392,6 +459,7 @@ public:
             fs::create_directories(s_.shot_dir, ec);
             shot((s_.shot_dir / ("shot-" + std::to_string(SDL_GetTicks()) + ".png")).string());
         }
+        if (continue_ && f == 2) continue_ = false, start_load(kResumeSlot);
         if (const int slot = s_.state_save.exchange(0)) start_save(slot);
         if (const int slot = s_.state_load.exchange(0)) start_load(slot);
         ntr::set_mic_blow(blow);
@@ -403,6 +471,15 @@ public:
             rt_->release_touch();
 
         if (quit || (exit_after_ && f >= exit_after_)) return false;
+        if (s_.paused.load() && resume_ && !s_.resume_done.load()) {
+            // Android, going to the background (where the app may be killed): first the resume state, a frame or
+            // two more of the game (not drawn, without input), then the wait below.
+            if (!save_slot_) start_save(kResumeSlot);
+            if (save_slot_ == kResumeSlot) {
+                pace();
+                return !s_.quit.load();
+            }
+        }
         if (s_.paused.load()) {  // (Android: the window's surface goes in the background)
             if (gl_) gl_->release();
             while (s_.paused.load() && !s_.quit.load()) SDL_Delay(50);
@@ -430,15 +507,31 @@ public:
     }
 
     void on_save(const uint8_t* data, size_t size) override {
-        std::lock_guard<std::mutex> lock(s_.save_mutex);
-        s_.save.assign(data, data + size);
-        s_.save_dirty = true;
+        {
+            std::lock_guard<std::mutex> lock(s_.save_mutex);
+            s_.save.assign(data, data + size);
+            s_.save_dirty = true;
+        }
+        // The game saved itself after a while of play: a resume state from before is older than the save now, and
+        // continuing from it would go back before that save. (A save right at the start is not that.)
+        if (frames_ > kResumeStaleFrames && !resume_cleared_) {
+            resume_cleared_ = true;
+            std::error_code ec;
+            for (const char* ext : {"state", "png", "txt"}) fs::remove(slot_file(s_.state_dir, kResumeSlot, ext), ec);
+            s_.states_version++;
+        }
     }
 
     void on_state_saved(std::vector<uint8_t> state) override {
         const int slot = save_slot_;
         save_slot_ = 0;
         if (!slot) return;
+        if (slot == kResumeSlot) {
+            // Quitting goes on, written or not. (The main thread ends the game only after this returns.)
+            s_.resume_done = true;
+            if (state.empty()) return (void)std::fprintf(stderr, "state: no moment for the resume state\n");
+        }
+        if (resume_pending_) resume_pending_ = false, s_.state_save = kResumeSlot;  // (asked for during this one)
         if (state.empty()) return s_.say("Could not save now: try again in a moment");
         if (!write_file_atomic(slot_file(s_.state_dir, slot, "state"), state))
             return s_.say("Could not write slot " + std::to_string(slot));
@@ -448,19 +541,27 @@ public:
         if (const std::tm* t = std::localtime(&now)) std::strftime(when, sizeof when, "%m-%d %H:%M", t);
         std::ofstream(slot_file(s_.state_dir, slot, "txt"), std::ios::trunc) << when << "\n";
         s_.states_version++;
+        if (slot == kResumeSlot) {
+            resume_cleared_ = false;  // (a new one: the next cartridge save makes it old again)
+            return (void)std::fprintf(stderr, "state: resume state written (for Continue)\n");
+        }
         s_.say("Saved to slot " + std::to_string(slot));
     }
 
     void on_state_loaded(bool ok, const std::string& error) override {
         const int slot = load_slot_;
         load_slot_ = 0;
+        if (slot == kResumeSlot) return s_.say(ok ? "Continued from where you left off" : "Could not continue: " + error);
         s_.say(ok ? "Loaded slot " + std::to_string(slot) : "Slot " + std::to_string(slot) + " not loaded: " + error);
     }
 
 private:
     // A save state of the frame being shown: its picture now, the state itself when the game gives a moment.
     void start_save(int slot) {
-        if (save_slot_) return;  // (one at a time)
+        if (save_slot_) {  // (one at a time; the resume state right after)
+            if (slot == kResumeSlot) resume_pending_ = true;
+            return;
+        }
         std::vector<uint32_t> pixels;
         int w = kW, h = kH * 2;
         screens(pixels, w, h);
@@ -477,7 +578,9 @@ private:
     void start_load(int slot) {
         if (load_slot_) return;
         std::vector<uint8_t> data = read_file(slot_file(s_.state_dir, slot, "state"));
-        if (data.empty()) return s_.say("Slot " + std::to_string(slot) + " is empty");
+        if (data.empty())
+            return s_.say(slot == kResumeSlot ? std::string("Nothing to continue from")
+                                              : "Slot " + std::to_string(slot) + " is empty");
         load_slot_ = slot;
         std::fprintf(stderr, "state: loading slot %d (%zu KB)\n", slot, data.size() / 1024);
         rt_->request_load_state(std::move(data));
@@ -500,7 +603,7 @@ private:
     }
 
     // Shows the frame (and the FPS counter, a note, the PC's menu) and applies a renderer change asked for in the menu.
-    void draw(const ntr::Frame& frame) {
+    void draw(const ntr::Frame& frame, bool count_game_frame = true) {
         Settings view;
         bool menu_open, video_dirty;
         int selected, page;
@@ -514,7 +617,12 @@ private:
             video_dirty = s_.video_dirty;
             s_.video_dirty = false;
         }
-        if (video_dirty) rt_->set_video(video_for(view)), video_asked_ = frames_;
+        if (video_dirty) {
+            const ntr::VideoSettings vs = video_for(view);
+            st::set_wide_extra(vs.wide_extra);
+            rt_->set_video(vs);
+            video_asked_ = frames_;
+        }
         if (!gl_->can_display(frame)) {
             if (!s_.gpu_failed.exchange(true)) {
                 std::fprintf(stderr, "video: Android renderer resources were lost; using software renderer for this run\n");
@@ -532,12 +640,23 @@ private:
         int w = 0, h = 0;
         SDL_GetWindowSizeInPixels(window_, &w, &h);
         gl_->begin(w, h);
-        const st::Views v = st::compute_views(float(w), float(h), view.layout, view.stretch);
-        if (v.top_shown) gl_->screen(frame, 0, v.top, view.smooth);
-        if (v.bottom_shown) gl_->screen(frame, 1, v.bottom, view.smooth);
+        const int extra = view.wide ? frame.wide_extra : 0;  // (0 until the renderer has made the change)
+        s_.wide_extra = extra;
+        s_.wide_layer = frame.wide_layer;
+        {
+            std::lock_guard<std::mutex> lock(s_.hud_mutex);
+            s_.hud_count = extra ? frame.hud_moves : 0;
+            for (int i = 0; i < s_.hud_count; i++) {
+                const auto& m = frame.hud_move[i];
+                s_.hud[size_t(i)] = {m.x0, m.y0, m.x1, m.y1, m.dx};
+            }
+        }
+        const st::Views v = st::compute_views(float(w), float(h), view.layout, view.stretch, extra, frame.wide_layer);
+        if (v.top_shown) gl_->screen(frame, 0, v.top, view.smooth, extra > 0);
+        if (v.bottom_shown) gl_->screen(frame, 1, v.bottom, view.smooth, extra > 0);
         // Frames per second: the game's frames shown, counted over a second.
-        fps_frames_++;
-        if (const uint64_t now = SDL_GetTicks(); now - fps_since_ >= 1000) {
+        if (count_game_frame) fps_frames_++;
+        if (count_game_frame) if (const uint64_t now = SDL_GetTicks(); now - fps_since_ >= 1000) {
             st::pad::game_fps10 = int(fps_frames_ * 10000 / (now - fps_since_));
             fps_frames_ = 0;
             fps_since_ = now;
@@ -573,6 +692,7 @@ private:
             if (const int version = s_.states_version.load(); version != thumbs_version_) {
                 thumbs_version_ = version;
                 times_ = slot_times(s_.state_dir);
+                resume_time_ = resume_time(s_.state_dir);
                 for (int i = 0; i < kSlots; i++) {
                     std::vector<uint32_t> px;
                     int tw = 0, th = 0;
@@ -589,6 +709,11 @@ private:
                              view.slot, times_};
             ms.fps_corner = view.fps_corner;
             ms.stretch = view.stretch;
+            ms.resume_time = resume_time_;
+            ms.stick = view.stick;
+            ms.wide = view.wide;
+            ms.textures = view.textures;
+            ms.fixes = view.fixes;
             ms.compute = view.compute;
             const int layer = view.layout == Layout::Top ? 0 : 1;  // the screen the player looks at
             menu.draw(*gl_, ms, float(w), float(h), ui, float(st::pad::game_fps10.load()) / 10.0f,
@@ -624,15 +749,20 @@ private:
     ntr::Frame last_{};  // (a copy: the runtime's goes when on_frame returns)
     bool have_last_ = false;
     int save_slot_ = 0, load_slot_ = 0;  // a save or load under way
+    bool continue_ = false, resume_ = false;  // (set_resume)
+    bool resume_cleared_ = false;  // the resume state was deleted as older than a cartridge save
+    bool resume_pending_ = false;  // the resume state was asked for while another state was being saved
     std::vector<uint32_t> thumb_;        // the picture of the state being saved
     uint64_t frames_ = 0;
     uint64_t video_asked_ = 0;  // the frame of the last renderer change asked for
     uint64_t fps_since_ = 0, fps_frames_ = 0;  // (the FPS counter)
     std::chrono::steady_clock::time_point next_{};
     st::GlPresenter* gl_ = nullptr;  // (null: the phone's fallback, the main thread draws)
+    st::Stick stick_;
 #ifndef __ANDROID__
     int thumbs_version_ = -1;  // the slot pictures in gl_ (states_version)
     std::array<std::string, kSlots> times_{};
+    std::string resume_time_;  // when the resume state was written ("" none)
 #endif
 };
 
@@ -740,11 +870,13 @@ uint32_t pad_button_bit(int button) {
     }
 }
 
-uint32_t gamepad_buttons(SDL_Gamepad* pad) {
+// `stick`: the left stick is the analog stick (st_stick.hpp), not the D-pad.
+uint32_t gamepad_buttons(SDL_Gamepad* pad, bool stick) {
     if (!pad) return 0;
     uint32_t b = 0;
     for (int i = 0; i < SDL_GAMEPAD_BUTTON_COUNT; i++)
         if (SDL_GetGamepadButton(pad, SDL_GamepadButton(i))) b |= pad_button_bit(i);
+    if (stick) return b;
     const float x = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX) / 32767.0f;
     const float y = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY) / 32767.0f;
     if (std::hypot(x, y) > 0.35f) {  // the nearest of eight directions
@@ -768,9 +900,10 @@ int main(int argc, char** argv) {
     // ---- arguments ----
     fs::path rom_path, save_path, data_dir, script_path, module_path = st::default_module_path();
     uint64_t exit_after = 0;
-    bool fullscreen_arg = false, unpaced = false, read_only_save = false;
-    std::string renderer_arg;
-    int scale_arg = 0;
+    bool fullscreen_arg = false, unpaced = false, read_only_save = false, continue_arg = false, wide_arg = false, wide21_arg = false;
+    bool fps_probe_arg = false;
+    std::string renderer_arg, textures_arg;
+    int scale_arg = 0, fixes_arg = -1;
     for (int i = 1; i < argc; i++) {
         const std::string a = argv[i];
         const bool has = i + 1 < argc;
@@ -784,6 +917,12 @@ int main(int argc, char** argv) {
         else if (a == "--fullscreen") fullscreen_arg = true;
         else if (a == "--unpaced") unpaced = true;
         else if (a == "--read-only-save") read_only_save = true;
+        else if (a == "--continue") continue_arg = true;
+        else if (a == "--wide") wide_arg = true;
+        else if (a == "--wide21") wide_arg = wide21_arg = true;
+        else if (a == "--fps-probe") fps_probe_arg = true;
+        else if (a == "--textures" && has) textures_arg = argv[++i];
+        else if (a == "--fixes" && has) fixes_arg = std::atoi(argv[++i]);
         else if (a == "--no-settings") {}  // (accepted: tests never write settings anyway, see below)
         else if (!a.empty() && a[0] != '-' && rom_path.empty()) rom_path = a;
         else {
@@ -837,6 +976,12 @@ int main(int argc, char** argv) {
 
     Settings settings = testing ? Settings{} : load_settings(settings_path);
     if (fullscreen_arg) settings.fullscreen = true;
+    if (wide_arg) settings.wide = true;
+    if (wide21_arg) settings.wide_mode = 2;
+    if (textures_arg == "pixels") settings.textures = 0;
+    else if (textures_arg == "smooth") settings.textures = 1;
+    else if (textures_arg == "sharp") settings.textures = 2;
+    if (fixes_arg >= 0 && fixes_arg <= 3) settings.fixes = fixes_arg;
     if (renderer_arg == "gpu" || renderer_arg == "compute") settings.gpu = settings.compute = true;
     else if (renderer_arg == "opengl") settings.gpu = true, settings.compute = false;
     else if (renderer_arg == "software") settings.gpu = false;
@@ -875,6 +1020,7 @@ int main(int argc, char** argv) {
     shared.shot_dir = data_dir / "screenshots";
     shared.state_dir = data_dir / "states";
     Host host(shared, window, audio, std::move(script), exit_after, unpaced);
+    host.set_resume(continue_arg && !testing, !testing);
 #ifdef __ANDROID__
     const bool lifecycle_watch_registered = SDL_AddEventWatch(watch_android_lifecycle, &shared);
     if (!lifecycle_watch_registered) std::fprintf(stderr, "android: could not register SDL lifecycle event watch: %s\n", SDL_GetError());
@@ -882,7 +1028,9 @@ int main(int argc, char** argv) {
     GameThreadArgs args{&shared, window, &host, std::move(rom), code, {}};
     args.options.save_data = read_file(save_path);
     args.options.console_name = "Link";
+    args.options.fps_probe = fps_probe_arg;
     args.options.video = video_for(settings);
+    st::set_wide_extra(args.options.video.wide_extra);
     std::fprintf(stderr, "save: %s (%zu bytes)\n", save_path.string().c_str(), args.options.save_data.size());
     SDL_PropertiesID props = SDL_CreateProperties();
     SDL_SetPointerProperty(props, SDL_PROP_THREAD_CREATE_ENTRY_FUNCTION_POINTER, reinterpret_cast<void*>(&game_thread));
@@ -921,6 +1069,21 @@ int main(int argc, char** argv) {
         if (read_only_save) return;
         if (!write_file_atomic(save_path, data)) std::fprintf(stderr, "save: cannot write %s\n", save_path.string().c_str());
     };
+    // Quitting: first the resume state (for Continue), at the game's next moment; quit without it after a while.
+    uint64_t quit_deadline = 0;
+    auto request_quit = [&] {
+        if (testing || shared.started.load() != 1 || quit_deadline || shared.resume_done.load()) {
+            shared.quit = true;
+            return;
+        }
+        quit_deadline = SDL_GetTicks() + 7000;  // (the runtime gives up after about five seconds)
+        shared.state_save = kResumeSlot;
+    };
+#ifndef __ANDROID__
+    // (On the phone the start screen has a Continue button.)
+    if (!testing && !continue_arg && !resume_time(shared.state_dir).empty())
+        shared.say("F9: continue from where you quit", 8000);
+#endif
 #ifndef __ANDROID__
     st::Menu menu;
 #endif
@@ -948,15 +1111,26 @@ int main(int argc, char** argv) {
                          settings.fullscreen, shared.gpu_failed.load(), settings.slot, slot_times(shared.state_dir)};
         ms.fps_corner = settings.fps_corner;
         ms.stretch = settings.stretch;
+        ms.resume_time = resume_time(shared.state_dir);
+        ms.stick = settings.stick;
+        ms.wide = settings.wide;
+        ms.textures = settings.textures;
+        ms.fixes = settings.fixes;
         ms.compute = settings.compute;
         return ms;
     };
     auto menu_done = [&](const st::MenuState& ms, st::MenuResult r) {
-        const bool video = ms.gpu != settings.gpu || ms.compute != settings.compute || ms.scale != settings.scale;
-        if (r == st::MenuResult::Quit) shared.quit = true;
+        const bool video = ms.gpu != settings.gpu || ms.compute != settings.compute || ms.scale != settings.scale ||
+                           ms.wide != settings.wide ||
+                           ms.textures != settings.textures || ms.fixes != settings.fixes;
+        if (r == st::MenuResult::Quit) request_quit();
         settings.layout = ms.layout, settings.gpu = ms.gpu, settings.scale = ms.scale;
         settings.smooth = ms.smooth, settings.fps = ms.fps, settings.slot = ms.slot;
         settings.fps_corner = ms.fps_corner, settings.stretch = ms.stretch;
+        settings.stick = ms.stick;
+        settings.wide = ms.wide;
+        settings.textures = ms.textures;
+        settings.fixes = ms.fixes;
         settings.compute = ms.compute;
         if (ms.fullscreen != settings.fullscreen) set_fullscreen(ms.fullscreen);
         st::pad::fps = settings.fps;
@@ -964,6 +1138,10 @@ int main(int argc, char** argv) {
         if (r == st::MenuResult::SaveState) shared.state_save = settings.slot;
         if (r == st::MenuResult::LoadState) {  // (back to the game to see it)
             shared.state_load = settings.slot;
+            menu.open = false;
+        }
+        if (r == st::MenuResult::Continue) {
+            shared.state_load = kResumeSlot;
             menu.open = false;
         }
         publish(video);
@@ -978,7 +1156,6 @@ int main(int argc, char** argv) {
     std::vector<uint32_t> pixels(size_t(kW) * kH * 2);
     while (!shared.game_done) {
 #ifdef __ANDROID__
-        // Android: in the background the game waits and the save is written at once (the app may be killed).
         if (shared.background_event.exchange(false)) {
             if (audio) SDL_PauseAudioStreamDevice(audio);
             flush_save();
@@ -996,8 +1173,8 @@ int main(int argc, char** argv) {
 #endif
         while (SDL_PollEvent(&e)) {
             switch (e.type) {
-                case SDL_EVENT_QUIT:
-                case SDL_EVENT_TERMINATING: shared.quit = true; break;
+                case SDL_EVENT_QUIT: request_quit(); break;
+                case SDL_EVENT_TERMINATING: shared.quit = true; break;  // (no time left for anything)
                 case SDL_EVENT_FINGER_DOWN:
                 case SDL_EVENT_FINGER_MOTION:
                 case SDL_EVENT_FINGER_UP:
@@ -1059,6 +1236,8 @@ int main(int argc, char** argv) {
                         shared.state_save = settings.slot;
                     } else if (k == SDL_SCANCODE_F8) {  // load it
                         shared.state_load = settings.slot;
+                    } else if (k == SDL_SCANCODE_F9) {  // continue from where the game was quit
+                        shared.state_load = kResumeSlot;
                     }
                     publish(false);
                     break;
@@ -1069,7 +1248,20 @@ int main(int argc, char** argv) {
 
         // Buttons held (the keyboard's only while the menu is closed), fast-forward on the ` key.
         const bool* keys = SDL_GetKeyboardState(nullptr);
-        shared.held = (menu_open ? 0u : keyboard_buttons()) | gamepad_buttons(pad) | st::pad::held.load();
+        shared.held = (menu_open ? 0u : keyboard_buttons()) | gamepad_buttons(pad, settings.stick) | st::pad::held.load();
+        // The analog stick: the gamepad's left stick or the phone's on-screen one, whichever is pushed farther.
+        if (const int want = st::pad::stick_mode.exchange(-1); want >= 0) settings.stick = want != 0;
+        shared.stick_on = settings.stick && !menu_open;
+        {
+            float sx = float(st::pad::stick_x.load()) / 1000.0f, sy = float(st::pad::stick_y.load()) / 1000.0f;
+            if (pad && settings.stick) {
+                const float gx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX) / 32767.0f;
+                const float gy = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY) / 32767.0f;
+                if (std::hypot(gx, gy) > std::hypot(sx, sy)) sx = gx, sy = gy;
+            }
+            shared.stick_x = int(std::clamp(sx, -1.0f, 1.0f) * 1000.0f);
+            shared.stick_y = int(std::clamp(sy, -1.0f, 1.0f) * 1000.0f);
+        }
         shared.fast_forward = !menu_open && keys[SDL_SCANCODE_GRAVE];
         // The microphone: M, or the right stick's click, is generated noise (shouting); N plays the bundled blow sample.
         shared.blow = (!menu_open && keys[SDL_SCANCODE_M]) ||
@@ -1083,6 +1275,19 @@ int main(int argc, char** argv) {
         if (const int want = st::pad::smooth.exchange(-1); want >= 0) settings.smooth = want != 0, changed = true;
         if (const int want = st::pad::stretch.exchange(-1); want >= 0) settings.stretch = want != 0, changed = true;
         bool video = false;
+        if (const int want = st::pad::wide_mode.exchange(-1); want >= 0 && want <= 2) {
+            const bool on = want != 0;
+            const int mode = on ? want : settings.wide_mode;
+            if (settings.wide != on || (on && settings.wide_mode != mode))
+                settings.wide = on, settings.wide_mode = mode, changed = video = true;
+        }
+        if (const int want = st::pad::textures.exchange(-1); want >= 0 && want <= 2 && want != settings.textures)
+            settings.textures = want, changed = video = true;
+        if (const int want = st::pad::fixes.exchange(-1); want >= 0 && want <= 3 && want != settings.fixes)
+            settings.fixes = want, changed = video = true;
+        if (const int want = st::pad::compute.exchange(-1); want >= 0 && (want != 0) != settings.compute)
+            settings.compute = want != 0, changed = video = true;
+        st::pad::compute_failed = shared.compute_failed.load();
         if (const int want = st::pad::video.exchange(-1); want >= 0) {  // (gpu << 8) | scale
             settings.gpu = (want >> 8) != 0;
             if (std::find(std::begin(kScales), std::end(kScales), want & 0xFF) != std::end(kScales)) settings.scale = want & 0xFF;
@@ -1091,7 +1296,12 @@ int main(int argc, char** argv) {
         if (const int want = st::pad::compute.exchange(-1); want >= 0 && (want != 0) != settings.compute)
             settings.compute = want != 0, changed = video = true;
         st::pad::gpu_failed = shared.gpu_failed.load();
-        st::pad::compute_failed = shared.compute_failed.load();
+        if (st::pad::resume_request.exchange(false)) {  // (the phone's Quit, before it ends the app)
+            shared.resume_done = false;
+            if (testing || shared.started.load() != 1) shared.resume_done = true;
+            else shared.state_save = kResumeSlot;
+        }
+        st::pad::resume_done = shared.resume_done.load();
         if (const int slot = st::pad::state_save.exchange(0); slot >= 1 && slot <= kSlots) shared.state_save = slot;
         if (const int slot = st::pad::state_load.exchange(0); slot >= 1 && slot <= kSlots) shared.state_load = slot;
         if (changed) publish(video);
@@ -1101,12 +1311,23 @@ int main(int argc, char** argv) {
         bool down = !menu_open && (SDL_GetMouseState(&mx, &my) & SDL_BUTTON_LMASK) && SDL_GetMouseFocus() == window;
         mx *= density, my *= density;  // (window coordinates to pixels)
         if (finger_down && !menu_open) down = true, mx = finger_x, my = finger_y;
-        const st::Views views = st::compute_views(float(win_pw), float(win_ph), settings.layout, settings.stretch);
+        const int wide_extra = settings.wide ? shared.wide_extra.load() : 0, wide_layer = shared.wide_layer.load();
+        const st::Views views =
+            st::compute_views(float(win_pw), float(win_ph), settings.layout, settings.stretch, wide_extra, wide_layer);
         bool touching = false;
         if (down && views.bottom_shown && views.bottom.contains(mx, my) && views.bottom.w > 0) {
             touching = true;
-            shared.touch_x = int((mx - views.bottom.x) / views.bottom.w * kW);
-            shared.touch_y = int((my - views.bottom.y) / views.bottom.h * kH);
+            int tx = 0, ty = 0;
+            std::array<st::HudMove, 32> hud{};
+            int hud_count = 0;
+            if (wide_layer == 1 && wide_extra) {
+                std::lock_guard<std::mutex> lock(shared.hud_mutex);
+                hud = shared.hud;
+                hud_count = shared.hud_count;
+            }
+            st::to_ds(views.bottom, wide_layer == 1 ? wide_extra : 0, mx, my, tx, ty, hud.data(), hud_count);
+            shared.touch_x = tx;
+            shared.touch_y = ty;
         }
         shared.touching = touching;
 
@@ -1177,6 +1398,7 @@ int main(int argc, char** argv) {
             flush_save();
             last_flush = SDL_GetTicks();
         }
+        if (quit_deadline && (shared.resume_done.load() || SDL_GetTicks() > quit_deadline)) shared.quit = true;
     }
 
     shared.quit = true;

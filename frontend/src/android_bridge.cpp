@@ -4,6 +4,7 @@
 #include <jni.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <thread>
 
@@ -71,6 +72,32 @@ extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeSetFpsCorne
 
 extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeSetStretch(JNIEnv*, jclass, jboolean on) {
     st::pad::stretch.store(on != JNI_FALSE ? 1 : 0);
+}
+
+extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeSetStick(JNIEnv*, jclass, jfloat x, jfloat y) {
+    st::pad::stick_x.store(int(x * 1000.0f));
+    st::pad::stick_y.store(int(y * 1000.0f));
+}
+
+extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeSetTextures(JNIEnv*, jclass, jint mode) {
+    st::pad::textures.store(int(mode));
+}
+
+extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeSetWide(JNIEnv*, jclass, jint mode) {
+    st::pad::wide_mode.store(std::clamp(int(mode), 0, 2));
+}
+
+extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeSetStickMode(JNIEnv*, jclass, jboolean on) {
+    st::pad::stick_mode.store(on != JNI_FALSE ? 1 : 0);
+}
+
+extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeRequestResume(JNIEnv*, jclass) {
+    st::pad::resume_done.store(false);
+    st::pad::resume_request.store(true);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL Java_com_strecomp_st_StInput_nativeResumeDone(JNIEnv*, jclass) {
+    return st::pad::resume_done.load() && !st::pad::resume_request.load() ? JNI_TRUE : JNI_FALSE;
 }
 
 namespace {

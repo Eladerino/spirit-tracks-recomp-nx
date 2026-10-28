@@ -3,6 +3,7 @@ package com.strecomp.st;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -10,15 +11,18 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -39,19 +43,24 @@ public final class LauncherActivity extends Activity {
     private static final int SAVE_SIZE = 1024 * 1024;  // the cartridge's 8 Mbit flash
 
     private TextView status;
-    private Button play;
+    private Button play, cont;
 
     private File rom() { return new File(getFilesDir(), "rom/bkie.nds"); }
 
     private File save() { return new File(getFilesDir(), "saves/bkie.sav"); }
 
+    /** The resume state the game writes when it quits or goes to the background (frontend main.cpp). */
+    private File resume(String ext) { return new File(getFilesDir(), "states/resume." + ext); }
+
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        final boolean landscape = getResources().getConfiguration().orientation
+                == Configuration.ORIENTATION_LANDSCAPE;
         final LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.CENTER);
-        final int pad = dp(20);
+        final int pad = dp(landscape ? 12 : 20);
         box.setPadding(pad, pad, pad, pad);
         // A dark glass panel over the picture (LauncherArt), so the text reads on the bright sky.
         final GradientDrawable panel = new GradientDrawable();
@@ -62,7 +71,7 @@ public final class LauncherActivity extends Activity {
         final TextView title = new TextView(this);
         title.setText("Spirit Tracks");
         title.setTextColor(Color.WHITE);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 34);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, landscape ? 26 : 34);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setGravity(Gravity.CENTER);
         box.addView(title);
@@ -70,17 +79,20 @@ public final class LauncherActivity extends Activity {
         final TextView sub = new TextView(this);
         sub.setText("The Legend of Zelda · native recomp");
         sub.setTextColor(0xFF8AB4FF);
-        sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, landscape ? 11 : 13);
         sub.setGravity(Gravity.CENTER);
         box.addView(sub);
 
         status = new TextView(this);
         status.setTextColor(0xFFB0B0B8);
-        status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        status.setTextSize(TypedValue.COMPLEX_UNIT_SP, landscape ? 11 : 14);
         status.setGravity(Gravity.CENTER);
-        status.setPadding(0, dp(12), 0, dp(20));
+        status.setPadding(0, dp(landscape ? 5 : 12), 0, dp(landscape ? 8 : 20));
         box.addView(status);
 
+        // Continue: the game from where it was last quit (its resume state); Play: from the title screen.
+        cont = button(box, "Continue", () -> startActivity(new Intent(this, GameActivity.class)
+                .putExtra(GameActivity.EXTRA_CONTINUE, true)));
         play = button(box, "Play", () -> startActivity(new Intent(this, GameActivity.class)));
         button(box, "Choose your game ROM (.nds)", () -> pick(PICK_ROM));
         button(box, "Import a save (.sav)", () -> pick(PICK_SAVE));
@@ -96,18 +108,20 @@ public final class LauncherActivity extends Activity {
         hint.setText("Use the ROM this app was built from (Spirit Tracks " + BuildConfig.ROM_VARIANT + ", made from your "
                 + "own USA dump; the PC scripts copy it in for you). A save from melonDS (.sav) can be "
                 + "imported; the save already here is kept as a dated backup. In the game, touch the picture: it is "
-                + "the stylus. The ≡ button opens the menu.");
+                + "the stylus. The ≡ button opens the menu. Continue picks up where you last quit; a save state never "
+                + "changes the game's own save.");
         hint.setTextColor(0xFFA8B0B8);
-        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, landscape ? 10 : 12);
         hint.setGravity(Gravity.CENTER);
-        hint.setPadding(0, dp(16), 0, 0);
+        hint.setPadding(0, dp(landscape ? 8 : 16), 0, 0);
         // (No wider than the screen leaves inside the panel: on a phone held upright 420 dp is too wide.)
         final int room = getResources().getDisplayMetrics().widthPixels - 2 * dp(16) - 2 * pad;
-        box.addView(hint, new LinearLayout.LayoutParams(Math.min(dp(420), room), ViewGroup.LayoutParams.WRAP_CONTENT));
+        box.addView(hint, new LinearLayout.LayoutParams(Math.min(dp(landscape ? 680 : 420), room),
+                ViewGroup.LayoutParams.WRAP_CONTENT));
 
         final LinearLayout page = new LinearLayout(this);
         page.setGravity(Gravity.CENTER);
-        final int margin = dp(16);
+        final int margin = dp(landscape ? 8 : 16);
         page.setPadding(margin, margin, margin, margin);
         page.addView(box, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         final ScrollView scroll = new ScrollView(this);
@@ -134,15 +148,38 @@ public final class LauncherActivity extends Activity {
         status.setText(s);
         play.setEnabled(haveRom);
         play.setAlpha(haveRom ? 1f : 0.5f);
+        final boolean haveResume = haveRom && resume("state").isFile();
+        cont.setVisibility(haveResume ? View.VISIBLE : View.GONE);
+        if (haveResume) cont.setText("Continue  (" + resumeTime() + ")");
+    }
+
+    /** When the resume state was written ("MM-DD HH:MM", from resume.txt). */
+    private String resumeTime() {
+        try (BufferedReader r = new BufferedReader(new FileReader(resume("txt")))) {
+            final String line = r.readLine();
+            if (line != null && !line.isEmpty()) return line.trim();
+        } catch (IOException ignored) {
+            // (no time: the file's date instead)
+        }
+        return new SimpleDateFormat("MM-dd HH:mm", Locale.US).format(new Date(resume("state").lastModified()));
     }
 
     private Button button(LinearLayout box, String text, Runnable action) {
+        final boolean landscape = getResources().getConfiguration().orientation
+                == Configuration.ORIENTATION_LANDSCAPE;
         final Button b = new Button(this);
         b.setText(text);
         b.setAllCaps(false);
+        if (landscape) {
+            b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            b.setMinHeight(dp(36));
+            b.setMinimumHeight(dp(36));
+            b.setPadding(dp(8), 0, dp(8), 0);
+        }
         b.setOnClickListener(v -> action.run());
-        final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(320), ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(8);
+        final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(landscape ? 300 : 320),
+                landscape ? dp(36) : ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(landscape ? 3 : 8);
         box.addView(b, lp);
         return b;
     }

@@ -16,7 +16,7 @@ if(ANDROID)
   target_link_options(st_game PRIVATE -nostdlib)
 
   # SDL's Android activity loads the program as libmain.so and calls its SDL_main.
-  add_library(main SHARED src/main.cpp src/game_module.cpp src/st_hooks.cpp src/png.cpp src/android_bridge.cpp
+  add_library(main SHARED src/main.cpp src/game_module.cpp src/st_hooks.cpp src/st_stick.cpp src/png.cpp src/android_bridge.cpp
               src/gl_present.cpp src/gles_compat.cpp)
   target_include_directories(main PRIVATE src)
   target_compile_options(main PRIVATE -O2)
@@ -47,6 +47,8 @@ if(ST_ROM)
     DEPENDS ntr-recomp ${ST_CONFIG}/functions.txt ${ST_CONFIG}/hooks.txt ${ST_CONFIG}/regions.txt "${ST_ROM}"
     COMMENT "Recompiling the game's code from your ROM"
     VERBATIM)
+  # Only the C (what the Android build needs): cmake --build --preset release --target ph_generate
+  add_custom_target(ph_generate DEPENDS ${ST_GEN_SOURCES} ${ST_GEN_DIR}/funcs.h)
 
   # A freestanding shared library: the runtime's services reach it through a table when it is loaded (ntr/recomp.h).
   add_library(st_game MODULE ${ST_GEN_SOURCES})
@@ -75,7 +77,7 @@ else()
 endif()
 
 # ---- the program ----
-add_executable(SpiritTracks src/main.cpp src/game_module.cpp src/st_hooks.cpp src/png.cpp src/gl_present.cpp src/menu.cpp)
+add_executable(SpiritTracks src/main.cpp src/game_module.cpp src/st_hooks.cpp src/st_stick.cpp src/png.cpp src/gl_present.cpp src/menu.cpp)
 target_include_directories(SpiritTracks PRIVATE src)
 set_target_properties(SpiritTracks PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 if(ST_ROM)

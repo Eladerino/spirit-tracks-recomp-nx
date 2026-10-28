@@ -13,7 +13,8 @@ constexpr uint32_t kShade = 0x55000000, kPanel = 0xF0181820, kRow = 0xFF2A2A34, 
                    kAccent = 0xFF8AB4FF, kWhite = 0xFFFFFFFF, kHint = 0xFF9090A0, kOff = 0xFF606068,
                    kEmpty = 0xFF121218;
 
-enum RowId { kScreen, kRenderer, kResolution, kPicture, kSize, kFps, kFullscreen, kQuit, kRowCount };
+enum RowId { kScreen, kRenderer, kResolution, kTextures, kFixes, kPicture, kSize, kWide, kFps, kFullscreen, kStick, kContinue, kQuit,
+             kRowCount };
 constexpr int kScales[] = {2, 4, 6, 8};
 constexpr int kColumns = 4;  // of the save state slots
 
@@ -45,22 +46,42 @@ Menu::Geometry Menu::geometry(const MenuState& s, float win_w, float win_h, floa
             if (s.gpu && kScales[i] == s.scale) chosen = i + 1;
         r[kResolution] = {"Resolution", {"1x", "2x", "4x", "6x", "8x"}, chosen, {!s.gpu, s.gpu, s.gpu, s.gpu, s.gpu}, {}, {}};
     }
+    const bool gl = s.gpu && !s.compute;  // texture filtering is only implemented by the classic OpenGL renderer
+    r[kTextures] = {"3D textures (GPU)", {"Pixels", "Smooth", "Sharp"}, gl ? s.textures : 0, {true, gl, gl}, {}, {}};
+    // (Seams: the GPU renderer's better polygons. Warp: textures the DS bends with the view, cut into a grid.)
+    r[kFixes] = {"3D fixes", {"Off", "Seams", "Warp", "Both"}, s.gpu ? s.fixes : s.fixes & 2, {true, s.gpu, true, s.gpu}, {}, {}};
     r[kPicture] = {"Picture", {"Sharp", "Smooth"}, s.smooth ? 1 : 0, {true, true}, {}, {}};
     r[kSize] = {"Picture size", {"Fit", "Stretch"}, s.stretch ? 1 : 0, {true, true}, {}, {}};
+    r[kWide] = {"Widescreen (test)", {"4:3", "16:9"}, s.wide && s.gpu ? 1 : 0, {true, s.gpu}, {}, {}};
     r[kFps] = {"FPS counter", {"Off", "Top L", "Top R", "Bot L", "Bot R"}, s.fps ? s.fps_corner + 1 : 0,
                {true, true, true, true, true}, {}, {}};
     r[kFullscreen] = {"Fullscreen", {"Off", "On"}, s.fullscreen ? 1 : 0, {true, true}, {}, {}};
+    // (Analog: not yet in Spirit Tracks, frontend/src/st_stick.cpp.)
+    r[kStick] = {"Gamepad's left stick", {"D-pad", "Analog"}, 0, {true, false}, {}, {}};
+    r[kContinue] = {"", {s.resume_time.empty() ? std::string("Continue: nothing yet") : "Continue from " + s.resume_time},
+                    -1, {!s.resume_time.empty()}, {}, {}};
     r[kQuit] = {"", {"Quit the game"}, -1, {true}, {}, {}};
+    // Each row's label over its chips, or (when that does not fit the window) beside them.
+    float stacked = y;
+    for (const Row& row : r) stacked += (row.label.empty() ? 0 : text + 8 * ui) + chip_h + 14 * ui;
+    const bool beside = stacked > win_h - pad - 10 * ui * 1.5f;
+    const float label_w = beside ? (p.w - 2 * pad) * 0.36f : 0;
     float ry = y;
     for (Row& row : r) {
+        float cx = p.x + pad, cwidth = p.w - 2 * pad;
         if (!row.label.empty()) {
-            row.label_at = {p.x + pad, ry, p.w - 2 * pad, text};
-            ry += text + 8 * ui;
+            if (beside) {
+                row.label_at = {cx, ry + (chip_h - text) / 2, label_w - gap, text};
+                cx += label_w, cwidth -= label_w;
+            } else {
+                row.label_at = {cx, ry, cwidth, text};
+                ry += text + 8 * ui;
+            }
         }
         const int n = int(row.choices.size());
-        const float cw = (p.w - 2 * pad - gap * float(n - 1)) / float(n);
-        for (int i = 0; i < n; i++) row.chips.push_back({p.x + pad + float(i) * (cw + gap), ry, cw, chip_h});
-        ry += chip_h + 14 * ui;
+        const float cw = (cwidth - gap * float(n - 1)) / float(n);
+        for (int i = 0; i < n; i++) row.chips.push_back({cx + float(i) * (cw + gap), ry, cw, chip_h});
+        ry += chip_h + (beside ? 8 : 14) * ui;
     }
 
     // Save states: a grid of cards (the picture, then the slot's number and time), then Save and Load.
@@ -88,13 +109,27 @@ MenuResult Menu::choose(int row, int choice, MenuState& s) {
             if (!s.gpu || choice == 0) return MenuResult::None;  // (1x is the software renderer's)
             s.scale = kScales[choice - 1];
             break;
+        case kTextures:
+            if (choice != 0 && (!s.gpu || s.compute)) return MenuResult::None;
+            s.textures = choice;
+            break;
+        case kFixes:
+            if ((choice & 1) && !s.gpu) return MenuResult::None;
+            s.fixes = choice;
+            break;
         case kPicture: s.smooth = choice == 1; break;
         case kSize: s.stretch = choice == 1; break;
+        case kWide:
+            if (choice == 1 && !s.gpu) return MenuResult::None;
+            s.wide = choice == 1;
+            break;
         case kFps:
             s.fps = choice != 0;
             if (choice) s.fps_corner = choice - 1;
             break;
         case kFullscreen: s.fullscreen = choice == 1; break;
+        case kStick: s.stick = false; break;  // (see geometry())
+        case kContinue: return s.resume_time.empty() ? MenuResult::None : MenuResult::Continue;
         case kQuit: return MenuResult::Quit;
         default: return MenuResult::None;
     }
@@ -140,7 +175,10 @@ MenuResult Menu::key(SDL_Scancode key, MenuState& s) {
     };
     if (key == SDL_SCANCODE_LEFT) return step(-1);
     if (key == SDL_SCANCODE_RIGHT) return step(1);
-    if (key == SDL_SCANCODE_RETURN || key == SDL_SCANCODE_SPACE) return selected == kQuit ? MenuResult::Quit : step(1);
+    if (key == SDL_SCANCODE_RETURN || key == SDL_SCANCODE_SPACE) {
+        if (selected == kQuit || selected == kContinue) return choose(selected, 0, s);  // (buttons)
+        return step(1);
+    }
     return MenuResult::None;
 }
 
@@ -220,7 +258,10 @@ void Menu::draw_panel(GlPresenter& gl, const MenuState& s, float win_w, float wi
 
     for (size_t i = 0; i < g.rows.size(); i++) {
         const Row& row = g.rows[i];
-        if (!row.label.empty()) gl.text(row.label_at.x, row.label_at.y, text, row.label, kAccent);
+        if (!row.label.empty()) {  // (beside its chips: as large as its room allows)
+            const float size = std::min(text, row.label_at.w / float(row.label.size()));
+            gl.text(row.label_at.x, row.label_at.y + (text - size) / 2, size, row.label, kAccent);
+        }
         if (int(i) == selected) {  // the keyboard's place: a bar beside the row's chips
             const Rect& c0 = row.chips.front();
             gl.fill({c0.x - 8 * ui, c0.y, 3 * ui, c0.h}, kAccent);

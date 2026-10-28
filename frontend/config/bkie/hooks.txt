@@ -11,6 +11,10 @@ main 020270f8 replace ntr_nitro_save_context   # OS_SaveContext (OS_func_0063)
 main 02027144 replace ntr_nitro_load_context   # OS_LoadContext (OS_func_0064)
 main 0202708c replace ntr_nitro_init_context   # OS_InitContext (OS_func_0062)
 
+# Widescreen: the projection's aspect ratio, in NitroSDK's G3i_PerspectiveW_ (r2 = aspect, 0x1555 = 4:3). Unnamed in
+# the decomp; matched to Phantom Hourglass's (0x02005bfc): the same arguments, the hardware divider, the same scaling.
+main 02022bcc before st_perspective_aspect      # G3i_PerspectiveW_
+
 # IRQ dispatch: enters OS_IrqHandler_ThreadSwitch explicitly (frontend/src/st_hooks.cpp).
 itcm 01ffbd70 replace st_os_irq_handler        # OS_IrqHandler
 

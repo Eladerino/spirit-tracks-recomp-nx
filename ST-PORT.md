@@ -82,6 +82,17 @@ when a phone cannot run Compute (or with `--renderer opengl`). The temporary deb
   The start screen's picture is drawn in code (`LauncherArt.java`, our own drawing). 5-BUILD-ANDROID uses the Android
   SDK's newest CMake (3.28+) when none is installed (cmake;3.31.6 added to the drive's SDK).
 
+- 2026-10-28 (later): Phantom Hourglass's frontend features merged in (three-way merge of PH e206c39 -> main):
+  Continue (resume state on quit / background), the phone's layout editor (move and resize controls, per orientation),
+  widescreen 16:9 / 21:9 (hook on G3i_PerspectiveW_ at main 0x02022bcc, matched to PH's 0x02005bfc: same arguments,
+  the hardware divider, the same scaling; HUD clusters at the wide edges), the 3D textures and 3D fixes options,
+  landscape launcher layout, visible menu switches. Not ported: the analog stick (it reads PH's gPlayerControl; Spirit
+  Tracks's touch state is not found yet: `frontend/src/st_stick.cpp` is off and the menus hide it) and PH's
+  `hud_sides` (PH's own HUD). Widescreen needs the generated C made again (2-BUILD: hooks.txt changed); an APK built
+  from the old generated C draws 16:9 without widening the 3D. (On the work PC, its security software deleted
+  buildeleaseecompiler
+tr-recomp.exe when it was run; 2-BUILD at home builds it again.)
+
 ## Next
 
 1. First home build: `RUN-ALL.ps1` (D-pad + QoL), then `RUN-ALL.ps1 -Variant clean`; compare both `recomp_report.txt`.

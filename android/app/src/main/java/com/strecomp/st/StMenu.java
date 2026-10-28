@@ -137,37 +137,53 @@ final class StMenu {
                     prefs.edit().putBoolean("fps", on).apply();
                     activity.setFpsShown(on);
                 });
-        // The renderer: Compute (melonDS's compute-shader renderer, OpenGL ES 3.1+) draws the DS's 2D and 3D at 2× or
-        // 4× its size; the software one is the DS's own picture (1×). (The OpenGL renderer is no longer offered: it drew
-        // stray dots on a Mali GPU. It still draws when a phone cannot run Compute.)
-        final boolean failed = StInput.nativeGpuFailed();
-        final boolean gpu = prefs.getBoolean("gpu", false) && !failed;
+        // Compute is the Android renderer. If a driver's compute feature is missing, the runtime falls back to
+        // OpenGL automatically; if graphics cannot start at all, it falls back to software.
+        final boolean graphicsFailed = StInput.nativeGpuFailed();
+        final boolean computeFailed = !graphicsFailed && StInput.nativeComputeFailed();
+        final boolean hardware = prefs.getBoolean("gpu", true) && !graphicsFailed;
+        final boolean software = !hardware;
         final int scale = Math.min(4, prefs.getInt("scale", 2));
-        list.addView(label("Renderer", failed ? "The phone's GPU could not start the game's renderer: software only."
-                : "Compute draws the game sharper at a higher resolution on the GPU (uses more battery); Software is the "
-                + "DS's own picture."));
-        chips(list, new String[] {"Software", "Compute"}, gpu ? 1 : 0, i -> {
-            prefs.edit().putBoolean("gpu", i == 1).putBoolean("compute", true).apply();
-            StInput.nativeSetCompute(true);
-            StInput.nativeSetVideo(i == 1, Math.min(4, prefs.getInt("scale", 2)));
+        list.addView(label("Renderer", graphicsFailed
+                ? "Hardware rendering could not start; the DS software renderer is active."
+                : computeFailed
+                    ? "Compute is unavailable on this phone; the standard GPU renderer is drawing the game."
+                    : "Compute draws the game at higher resolution with accurate 3D; Software uses the DS's native picture."));
+        chips(list, new String[] {"Software", "Compute"}, software ? 0 : 1, i -> {
+            final boolean useCompute = i == 1;
+            final int newScale = Math.min(4, prefs.getInt("scale", 2));
+            prefs.edit().putBoolean("gpu", useCompute).putBoolean("compute", useCompute)
+                    .putInt("scale", newScale).apply();
+            StInput.nativeSetCompute(useCompute);
+            StInput.nativeSetVideo(useCompute, useCompute ? newScale : 1);
+            final int wideMode = useCompute && prefs.getBoolean("wide", false)
+                    ? Math.max(1, Math.min(2, prefs.getInt("wide_mode", 1))) : 0;
+            StInput.nativeSetWide(wideMode);
+            pad.setWide(wideMode);
             refresh();
-        }, new boolean[] {true, !failed});
-        if (gpu && StInput.nativeComputeFailed()) {
-            list.addView(label("", "Compute cannot run on this phone (its graphics driver lacks a feature it needs): "
-                    + "the OpenGL renderer draws instead."));
-        }
-        list.addView(label("Internal resolution", gpu ? "How many times the DS's resolution Compute draws at."
-                : "With Compute."));
-        // (Up to 4×: Compute's tile memory at 6× is some 300 MB of a phone's graphics memory.)
+        }, new boolean[] {true, !graphicsFailed});
+        list.addView(label("Internal resolution", hardware ? "Compute resolution; up to 4× on Android."
+                : "Software runs at the DS's native resolution."));
+        // (Compute is capped at 4× on Android.)
         final int[] scales = {1, 2, 4};
         int chosen = 0;
-        for (int i = 1; i < scales.length; i++) if (gpu && scales[i] == scale) chosen = i;
+        for (int i = 1; i < scales.length; i++) if (hardware && scales[i] == scale) chosen = i;
         chips(list, new String[] {"1×", "2×", "4×"}, chosen, i -> {
             if (i == 0) return;
             prefs.edit().putInt("scale", scales[i]).apply();
             StInput.nativeSetVideo(true, scales[i]);
             refresh();
-        }, new boolean[] {!gpu, gpu, gpu});
+        }, new boolean[] {software, hardware, hardware});
+        if (computeFailed) {
+            list.addView(label("3D textures", "Compute is unavailable, so the standard GPU renderer is active. Pixels keeps "
+                    + "the DS's blocky texels; Smooth blends them; Sharp keeps them crisp with soft edges between."));
+            final int textures = Math.max(0, Math.min(2, prefs.getInt("textures", 0)));
+            chips(list, new String[] {"Pixels", "Smooth", "Sharp"}, textures, i -> {
+                prefs.edit().putInt("textures", i).apply();
+                StInput.nativeSetTextures(i);
+                refresh();
+            }, new boolean[] {true, true, true});
+        }
 
         states(list);
 
@@ -178,6 +194,21 @@ final class StMenu {
         });
 
         section(list, "Controls");
+        final boolean wideAvailable = prefs.getBoolean("gpu", true) && !StInput.nativeGpuFailed();
+        final int wideMode = prefs.getBoolean("wide", false) ? Math.max(1, Math.min(2, prefs.getInt("wide_mode", 1))) : 0;
+        list.addView(label("Widescreen", "With Compute, shows more of the world at the sides. Some objects may appear late at the edges."));
+        chips(list, new String[] {"4:3", "16:9", "21:9"}, wideMode, i -> {
+            final int mode = wideAvailable ? i : 0;
+            prefs.edit().putBoolean("wide", mode != 0).putInt("wide_mode", mode == 0 ? 1 : mode).apply();
+            StInput.nativeSetWide(mode);
+            pad.setWide(mode);
+            refresh();
+        }, new boolean[] {true, wideAvailable, wideAvailable});
+        // (No "Analog stick" here yet: it needs Link's touch state in Spirit Tracks, not found yet; frontend/src/st_stick.cpp.)
+        row(list, "Move and resize controls", () -> {
+            close();
+            pad.startEditing();
+        });
         for (String[] g : DsPad.GROUPS) {
             final String id = g[0];
             toggle(list, g[1], null, pad.groupOn(id), on -> pad.setGroup(id, on));
@@ -323,6 +354,22 @@ final class StMenu {
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.addView(label(name, hint), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         final Switch sw = new Switch(activity);
+        // (The app's theme is the old pre-Holo one, whose switch is a faint ON / OFF label: a track and knob of our own.)
+        final android.content.res.ColorStateList trackColors = new android.content.res.ColorStateList(
+                new int[][] {{android.R.attr.state_checked}, {}}, new int[] {ACCENT, 0xFF44444F});
+        final GradientDrawable track = new GradientDrawable();
+        track.setCornerRadius(px(13));
+        track.setSize(px(46), px(26));
+        track.setColor(trackColors);
+        final GradientDrawable thumb = new GradientDrawable();
+        thumb.setShape(GradientDrawable.OVAL);
+        thumb.setSize(px(26), px(26));
+        thumb.setColor(Color.WHITE);
+        thumb.setStroke(px(3), trackColors);
+        sw.setTrackDrawable(track);
+        sw.setThumbDrawable(thumb);
+        sw.setShowText(false);
+        sw.setText(null);
         sw.setChecked(on);
         sw.setOnCheckedChangeListener((b, checked) -> onToggle.set(checked));
         row.addView(sw);

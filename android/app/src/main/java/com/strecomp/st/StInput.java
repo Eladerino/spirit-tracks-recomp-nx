@@ -16,7 +16,6 @@ public final class StInput {
 
     /** The Mic button: while on, the microphone hears blowing. */
     public static native void nativeSetMic(boolean on);
-
     /** The Blow button: while on, the microphone hears the bundled blow sample (the Spirit Flute). */
     public static native void nativeSetMicSample(boolean on);
 
@@ -46,15 +45,32 @@ public final class StInput {
     public static native void nativeSaveState(int slot);
     public static native void nativeLoadState(int slot);
 
-    /** The renderer: the GPU one (OpenGL ES) at `scale` (2, 4, 6 or 8) times the DS's resolution, or the software one. */
+    /** Set the hardware renderer (GPU) and its internal resolution. Android requests Compute separately. */
     public static native void nativeSetVideo(boolean gpu, int scale);
 
     /** The GPU renderer could not start on this phone (the game is on the software one). */
     public static native boolean nativeGpuFailed();
 
-    /** The compute renderer (with the GPU one on): more accurate 3D; needs OpenGL ES 3.1, else the OpenGL renderer
-     *  draws (nativeComputeFailed). */
+    /** Request the Compute renderer; if unavailable, the runtime falls back to OpenGL (nativeComputeFailed). */
     public static native void nativeSetCompute(boolean on);
 
     public static native boolean nativeComputeFailed();
+
+    /** The 3D's textures with the GPU renderer: 0 the DS's pixels, 1 smooth, 2 sharp (crisp, soft only between texels). */
+    public static native void nativeSetTextures(int mode);
+
+    /** Widescreen mode: 0 off, 1 16:9, 2 21:9. */
+    public static native void nativeSetWide(int mode);
+
+    /** The on-screen analog stick: x, y in -1..1 (y down), 0, 0 at rest. */
+    public static native void nativeSetStick(float x, float y);
+
+    /** The analog stick moves Link (on: the on-screen stick and a controller's left stick), or the D-pad does. */
+    public static native void nativeSetStickMode(boolean on);
+
+    /** Continue: write the resume state (files/states/resume.state, .png, .txt) now, before quitting. */
+    public static native void nativeRequestResume();
+
+    /** The resume state asked for is written (or the game gave no moment for it). */
+    public static native boolean nativeResumeDone();
 }
