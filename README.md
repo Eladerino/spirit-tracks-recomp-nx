@@ -39,20 +39,32 @@ same engine, program and Android app, set up for Spirit Tracks.
   software renderer (1x, in the menu) is the safe fallback.
 - **PC:** Windows 11.
 - **Status:** plays on PC, the Pixel 8 and the LG V30. The GPU renderer shows stray dots on the Pixel 8's Mali GPU
-  (being fixed); the software renderer is clean.
-- **Measured** (2026-11-03, 60 s at the same spot in gameplay, with the `phoneperf` tool):
+  (being fixed).
+- **Measured** (2026-11-03, this `main` build on both phones): each renderer set the way the menu does, the game
+  continued from the same spot in gameplay, 20 s to settle, then 30 s of the frames the phone actually showed
+  (Android's SurfaceFlinger: `--latency` on the V30, `--timestats` on the Pixel 8). Every run started the renderer it
+  asked for (checked in the game's log).
 
-  | Phone | Renderer | fps | 1% low | Notes |
-  |---|---|---:|---:|---|
-  | LG V30 | **OpenGL 4x** | **56.5** | 17 | 2.8% of frames take longer than 33 ms |
-  | LG V30 | OpenGL 2x | 34.2 | 15 | slower than 4x: see below |
-  | LG V30 | Compute 2x | 29.7 | 12 | (2026-11-02) |
-  | LG V30 | Software | 35.5 | 16 | (2026-11-02) |
-  | Pixel 8 | Compute 2x | ~60 | | |
+  | Renderer | LG V30 fps | V30 1% low | Pixel 8 fps | Pixel 1% low |
+  |---|---:|---:|---:|---:|
+  | Software (1x) | 32.0 | 15 | 61.5 | 40 |
+  | OpenGL 2x | 36.5 | 20 | 61.4 | 30 |
+  | **OpenGL 4x** | **47.3** | 30 | 61.5 | 30 |
+  | Compute 2x | 21.3 | 10 | 61.4 | 30 |
+  | Compute 4x | 18.6 | 8 | 61.5 | 30 |
+
+  The Pixel 8 runs every setting at full speed (~60 fps; it measures slightly over 60 on its 120 Hz display).
+  The phone app caps the resolution at 4x (6x gives 4x; checked in Phantom Hourglass Recomp, same code).
+  1% low = the frame rate of the slowest 1% of frames.
 
   **Best settings:** **OpenGL 4x** on older phones like the V30; **Compute** (the more exact renderer) on fast phones
   like the Pixel 8. On the V30, 4x runs faster than 2x: the heavier load makes the phone raise its CPU and GPU clocks
-  (fast cores ~1.9 GHz and the GPU at ~670 MHz at 4x, against ~1.2 GHz and 257 MHz at 2x).
+  (fast cores ~1.9 GHz and the GPU at ~670 MHz at 4x, against ~1.2 GHz and 257 MHz at 2x, measured with the
+  `phoneperf` tool). Earlier the same day `phoneperf` measured 56.5 fps at OpenGL 4x on the V30 with a test build
+  (`feature/opengl`: the same fixes plus measuring code); the gap to the 47 here is not explained yet (a different way
+  of counting frames, and run-to-run clock differences on the V30).
+- **Known issue:** in **Software** mode the bottom of the screen flickers on both phones (seen 2026-11-03 during the
+  measurements above); OpenGL and Compute are not affected. Not yet investigated.
 - **OpenGL on phones** (2026-11-03): OpenGL is a menu choice next to Software and Compute, with the same fixes as
   Phantom Hourglass Recomp (the DS's "equal depth" test for flicker-free small objects, a rare crash at start, and a
   restart at the same spot when changing to OpenGL or Compute or the widescreen mode). Scenes with 3D on both screens
