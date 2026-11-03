@@ -217,6 +217,15 @@ ffcc_patch(gpu3d_compute_sh GPU3D_Compute_shaders.h "const std::string ClearCoar
 include(${CMAKE_CURRENT_SOURCE_DIR}/gles_compute_fixes.cmake)  # (the GLSL ES fixes, for the phone)
 ffcc_write_patched(gpu3d_compute_sh ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/GPU3D_Compute_shaders.h)
 
+# GPU.cpp: the constructor's SetRenderer() syncs VRAM captures for the *old* renderer before any is set, and
+# VRAMCaptureBlockFlags is not cleared until Reset(). Leftover heap bytes in it made that call go through a null Rend:
+# SIGSEGV at start on some launches (seen in PH on the LG V30, tombstone 2026-11-03). No renderer = nothing to sync.
+file(READ ${MS}/GPU.cpp gpu_src)
+string(REPLACE "\r\n" "\n" gpu_src "${gpu_src}")
+ffcc_patch(gpu_src GPU.cpp "void GPU::SyncAllVRAMCaptures()\n{\n"
+  "void GPU::SyncAllVRAMCaptures()\n{\n    if (!Rend) return; // ffcc patch: called from the constructor before a renderer exists\n")
+ffcc_write_patched(gpu_src ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/GPU.cpp)
+
 set(melonDS_HOMEPAGE_URL "https://melonds.kuribo64.net")
 set(melonDS_VERSION "1.1")
 set(MELONDS_VERSION_SUFFIX "-ffcc")
@@ -228,7 +237,7 @@ add_library(melonds_core STATIC
   ${MS}/CRC32.cpp ${MS}/DMA.cpp ${MS}/DMA_Timings.cpp ${MS}/DSi.cpp ${MS}/DSi_AES.cpp ${MS}/DSi_Camera.cpp
   ${MS}/DSi_DSP.cpp ${MS}/DSi_I2C.cpp ${MS}/DSi_I2S.cpp ${MS}/DSi_NAND.cpp ${MS}/DSi_NDMA.cpp ${MS}/DSi_NWifi.cpp
   ${MS}/DSi_SD.cpp ${MS}/DSi_SPI_TSC.cpp ${MS}/FATIO.cpp ${MS}/FATStorage.cpp ${MS}/GBACart.cpp
-  ${MS}/GBACartMotionPak.cpp ${MS}/GPU.cpp ${MS}/GPU_Soft.cpp ${MS}/GPU2D.cpp ${MS}/GPU2D_Soft.cpp ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/GPU3D.cpp
+  ${MS}/GBACartMotionPak.cpp ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/GPU.cpp ${MS}/GPU_Soft.cpp ${MS}/GPU2D.cpp ${MS}/GPU2D_Soft.cpp ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/GPU3D.cpp
   ${MS}/GPU3D_Soft.cpp ${MS}/GPU3D_Texcache.cpp ${MS}/Mic.cpp ${MS}/NDS.cpp ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/NDSCart.cpp ${MS}/ROMList.cpp
   ${MS}/FreeBIOS.cpp ${MS}/RTC.cpp ${MS}/Savestate.cpp ${MS}/SPI.cpp ${MS}/SPI_Firmware.cpp ${MS}/SPU.cpp
   ${MS}/Utils.cpp ${MS}/Wifi.cpp ${MS}/WifiAP.cpp
@@ -313,6 +322,16 @@ ffcc_patch(shader_3DRenderFS 3DRenderFS.glsl "vec4 FinalColor()\n{\n" "${ffcc_sm
 ffcc_patch(shader_3DRenderFS 3DRenderFS.glsl "            tcol = vec4(texture(CurTexture, texcoord)) / vec4(63,63,63,31);\n"
   "            tcol = (uSmoothTex == 0) ? (vec4(texture(CurTexture, texcoord)) / vec4(63,63,63,31)) : SmoothTexel(texcoord);\n")
 ffcc_write_patched(shader_3DRenderFS ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/OpenGL_shaders/3DRenderFS.glsl)
+# 3DRenderVS: the DS's "depth equal" test (polygon attribute bit 14) passes within a margin (0x200 in Z-buffer mode, 0xFF
+# in W-buffer mode); melonDS's OpenGL renderer uses plain GL_LEQUAL ("TODO: proper 'equal' depth test!" in
+# GPU3D_OpenGL.cpp), so a coplanar piece a hair behind wins and loses from frame to frame: flicker (PH's cut grass,
+# user report and check, 2026-11-03). Moving those polygons toward the camera by the margin lets GL_LEQUAL pass where
+# the DS's test passes. OpenGL renderer only (Compute and software emulate the test exactly).
+file(READ ${MS}/OpenGL_shaders/3DRenderVS.glsl shader_3DRenderVS)
+string(REPLACE "\r\n" "\n" shader_3DRenderVS "${shader_3DRenderVS}")
+ffcc_patch(shader_3DRenderVS 3DRenderVS.glsl "    fpos.z = (float(vPosition.z << zshift) / 8388608.0) - 1.0;\n#endif\n"
+  "    fpos.z = (float(vPosition.z << zshift) / 8388608.0) - 1.0;\n#endif\n    if ((attr & 0x4000) != 0) // ffcc patch: depth-equal margin\n    {\n#ifdef WBuffer\n        fZ -= 255.0 / 16777216.0;\n#else\n        fpos.z -= 1024.0 / 16777216.0;\n#endif\n    }\n")
+ffcc_write_patched(shader_3DRenderVS ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/OpenGL_shaders/3DRenderVS.glsl)
 
 # The phone: OpenGL ES 3.2 copies of all of them (ours where patched above), made by gles_shaders.cmake. ST_GLES_SHADERS
 # builds the PC program with them too (the gles-test preset: NVIDIA's and AMD's drivers take ES shaders), to test the
@@ -332,7 +351,7 @@ set(melonds_shader_headers)
 foreach(sh ${MELONDS_SHADERS})
   set(out ${CMAKE_CURRENT_BINARY_DIR}/melonds_gen/OpenGL_shaders/${sh}.h)
   set(in ${MS}/OpenGL_shaders/${sh}.glsl)
-  if(sh MATCHES "^(2DCompositorVS|2DCompositorFS|2DSpriteVS|FinalPassFS|CaptureFS|3DRenderFS)$")
+  if(sh MATCHES "^(2DCompositorVS|2DCompositorFS|2DSpriteVS|FinalPassFS|CaptureFS|3DRenderVS|3DRenderFS)$")
     set(in ${CMAKE_CURRENT_BINARY_DIR}/melonds_patched/OpenGL_shaders/${sh}.glsl)
   endif()
   if(ANDROID OR ST_GLES_SHADERS)
