@@ -31,10 +31,32 @@ same engine, program and Android app, set up for Spirit Tracks.
 
 ## Tested on
 
-- **Phone:** Google Pixel 8. Other phones should work (Android 8 or newer, 64-bit ARM) but have not been tried, and GPU
-  drivers differ: if the picture looks wrong, the software renderer (1x, in the menu) is the safe fallback.
+- **Phones:** two test phones, a high-end one and a 2017 one:
+  - **Google Pixel 8** (Tensor G3, Mali-G715, Android 14+)
+  - **LG V30** (Snapdragon 835, Adreno 540, Android 8, rooted for measuring)
+
+  Other phones should work (Android 8 or newer, 64-bit ARM), but GPU drivers differ: if the picture looks wrong, the
+  software renderer (1x, in the menu) is the safe fallback.
 - **PC:** Windows 11.
-- **Status:** plays on PC and on the Pixel 8. The GPU renderer shows stray dots on the Pixel 8's Mali GPU (being fixed); the software renderer is clean.
+- **Status:** plays on PC, the Pixel 8 and the LG V30. The GPU renderer shows stray dots on the Pixel 8's Mali GPU
+  (being fixed); the software renderer is clean.
+- **Measured** (2026-11-03, 60 s at the same spot in gameplay, with the `phoneperf` tool):
+
+  | Phone | Renderer | fps | 1% low | Notes |
+  |---|---|---:|---:|---|
+  | LG V30 | **OpenGL 4x** | **56.5** | 17 | 2.8% of frames take longer than 33 ms |
+  | LG V30 | OpenGL 2x | 34.2 | 15 | slower than 4x: see below |
+  | LG V30 | Compute 2x | 29.7 | 12 | (2026-11-02) |
+  | LG V30 | Software | 35.5 | 16 | (2026-11-02) |
+  | Pixel 8 | Compute 2x | ~60 | | |
+
+  **Best settings:** **OpenGL 4x** on older phones like the V30; **Compute** (the more exact renderer) on fast phones
+  like the Pixel 8. On the V30, 4x runs faster than 2x: the heavier load makes the phone raise its CPU and GPU clocks
+  (fast cores ~1.9 GHz and the GPU at ~670 MHz at 4x, against ~1.2 GHz and 257 MHz at 2x).
+- **OpenGL on phones** (2026-11-03): OpenGL is a menu choice next to Software and Compute, with the same fixes as
+  Phantom Hourglass Recomp (the DS's "equal depth" test for flicker-free small objects, a rare crash at start, and a
+  restart at the same spot when changing to OpenGL or Compute or the widescreen mode). Scenes with 3D on both screens
+  have not been checked in OpenGL yet.
 
 ## What you need
 
