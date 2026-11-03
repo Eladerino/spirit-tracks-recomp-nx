@@ -1,6 +1,7 @@
 package com.strecomp.st;
 
 import android.app.AlertDialog;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.os.Build;
@@ -36,14 +37,15 @@ public class GameActivity extends SDLActivity {
     protected String[] getArguments() {
         final File files = getFilesDir();
         final SharedPreferences prefs = getSharedPreferences(DsPad.PREFS, MODE_PRIVATE);
-        // Android offers Software or Compute. Migrate the old classic-GPU selection to Compute, while preserving
-        // Software choices from existing installs.
+        // Android offers Software, OpenGL or Compute ("gpu" = hardware, "compute" = Compute when hardware). Earlier
+        // builds kept "compute" equal to "gpu" at every launch, so existing installs keep the renderer they had.
+        // (On ST's command line "gpu" means Compute; OpenGL is "opengl".)
         final boolean hardware = prefs.getBoolean("gpu", true);
-        prefs.edit().putBoolean("compute", hardware).apply();
+        final boolean compute = hardware && prefs.getBoolean("compute", true);
         final java.util.ArrayList<String> args = new java.util.ArrayList<>(java.util.Arrays.asList(
                 new File(files, "rom/bkie.nds").getAbsolutePath(),
                 "--data-dir", files.getAbsolutePath(),
-                "--renderer", hardware ? "compute" : "software",
+                "--renderer", compute ? "compute" : hardware ? "opengl" : "software",
                 "--scale", String.valueOf(hardware ? Math.min(4, prefs.getInt("scale", 2)) : 1)));
         if (getIntent() != null && getIntent().getBooleanExtra(EXTRA_CONTINUE, false)) args.add("--continue");
         if (getIntent() != null && getIntent().getBooleanExtra("fps_probe", false)) args.add("--fps-probe");
@@ -159,6 +161,20 @@ public class GameActivity extends SDLActivity {
 
     /** Quit: the resume state first (Continue on the start screen), waiting for it up to a few seconds. */
     private void quitWithResume() {
+        quitWithResume(this::finish);
+    }
+
+    /** A video change that needs a fresh game (a GPU renderer or width): the resume state, then this process ends
+     *  and the start screen continues from it at once, with the new settings. */
+    void restartWithResume() {
+        quitWithResume(() -> {
+            startActivity(new Intent(this, LauncherActivity.class).putExtra(LauncherActivity.EXTRA_RELAUNCH, true)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
+            finish();
+        });
+    }
+
+    private void quitWithResume(Runnable then) {
         StInput.nativeRequestResume();
         new Thread(() -> {
             final long until = System.currentTimeMillis() + 6000;
@@ -169,7 +185,7 @@ public class GameActivity extends SDLActivity {
                     break;
                 }
             }
-            runOnUiThread(this::finish);
+            runOnUiThread(then);
         }).start();
     }
 
