@@ -3,6 +3,7 @@ package com.strecomp.st;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -42,8 +43,6 @@ public final class LauncherActivity extends Activity {
     private static final String ROM_SHA1 = BuildConfig.ROM_SHA1;
     private static final int SAVE_SIZE = 1024 * 1024;  // the cartridge's 8 Mbit flash
 
-    private TextView status;
-    private Button play, cont;
 
     private File rom() { return new File(getFilesDir(), "rom/bkie.nds"); }
 
@@ -76,89 +75,29 @@ public final class LauncherActivity extends Activity {
         startActivity(new Intent(this, GameActivity.class).putExtra(GameActivity.EXTRA_CONTINUE, true));
     }
 
+    // ---- per game ----
+    private static final String TITLE = "The Legend of Zelda\nSpirit Tracks";
+    private static final String SUBTITLE = "Nintendo DS · native Android port";
+    private static final String ROM_HELP = "Choose the ROM this app was built from (Spirit Tracks " + BuildConfig.ROM_VARIANT
+            + ", made from your own USA dump; the PC scripts copy it in for you). Nothing is downloaded. A save from "
+            + "melonDS (.sav) can be imported afterwards under Save file.";
+    private static final String SAVE_NAME = "SpiritTracks.sav";
+    private static final boolean GPU_DEFAULT = true;   // GameActivity: prefs.getBoolean("gpu", ...)
+
+    private LauncherLook look;
+
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        final boolean landscape = getResources().getConfiguration().orientation
-                == Configuration.ORIENTATION_LANDSCAPE;
-        final LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setGravity(Gravity.CENTER);
-        final int pad = dp(landscape ? 12 : 20);
-        box.setPadding(pad, pad, pad, pad);
-        // A dark glass panel over the picture (LauncherArt), so the text reads on the bright sky.
-        final GradientDrawable panel = new GradientDrawable();
-        panel.setColor(0xC8101820);
-        panel.setCornerRadius(dp(18));
-        box.setBackground(panel);
-
-        final TextView title = new TextView(this);
-        title.setText("Spirit Tracks");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, landscape ? 26 : 34);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setGravity(Gravity.CENTER);
-        box.addView(title);
-
-        final TextView sub = new TextView(this);
-        sub.setText("The Legend of Zelda · native recomp");
-        sub.setTextColor(0xFF8AB4FF);
-        sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, landscape ? 11 : 13);
-        sub.setGravity(Gravity.CENTER);
-        box.addView(sub);
-
-        status = new TextView(this);
-        status.setTextColor(0xFFB0B0B8);
-        status.setTextSize(TypedValue.COMPLEX_UNIT_SP, landscape ? 11 : 14);
-        status.setGravity(Gravity.CENTER);
-        status.setPadding(0, dp(landscape ? 5 : 12), 0, dp(landscape ? 8 : 20));
-        box.addView(status);
-
-        // Continue: the game from where it was last quit (its resume state); Play: from the title screen.
-        cont = button(box, "Continue", () -> startActivity(new Intent(this, GameActivity.class)
-                .putExtra(GameActivity.EXTRA_CONTINUE, true)));
-        play = button(box, "Play", () -> startActivity(new Intent(this, GameActivity.class)));
-        button(box, "Choose your game ROM (.nds)", () -> pick(PICK_ROM));
-        button(box, "Import a save (.sav)", () -> pick(PICK_SAVE));
-        button(box, "Export the save", () -> {
-            final Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-            i.addCategory(Intent.CATEGORY_OPENABLE);
-            i.setType("application/octet-stream");
-            i.putExtra(Intent.EXTRA_TITLE, "SpiritTracks.sav");
-            startActivityForResult(i, EXPORT_SAVE);
-        });
-
-        final TextView hint = new TextView(this);
-        hint.setText("Use the ROM this app was built from (Spirit Tracks " + BuildConfig.ROM_VARIANT + ", made from your "
-                + "own USA dump; the PC scripts copy it in for you). A save from melonDS (.sav) can be "
-                + "imported; the save already here is kept as a dated backup. In the game, touch the picture: it is "
-                + "the stylus. The ≡ button opens the menu. Continue picks up where you last quit; a save state never "
-                + "changes the game's own save.");
-        hint.setTextColor(0xFFA8B0B8);
-        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, landscape ? 10 : 12);
-        hint.setGravity(Gravity.CENTER);
-        hint.setPadding(0, dp(landscape ? 8 : 16), 0, 0);
-        // (No wider than the screen leaves inside the panel: on a phone held upright 420 dp is too wide.)
-        final int room = getResources().getDisplayMetrics().widthPixels - 2 * dp(16) - 2 * pad;
-        box.addView(hint, new LinearLayout.LayoutParams(Math.min(dp(landscape ? 680 : 420), room),
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        final LinearLayout page = new LinearLayout(this);
-        page.setGravity(Gravity.CENTER);
-        final int margin = dp(landscape ? 8 : 16);
-        page.setPadding(margin, margin, margin, margin);
-        page.addView(box, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        final ScrollView scroll = new ScrollView(this);
-        scroll.setBackground(new LauncherArt());
-        scroll.setFillViewport(true);
-        scroll.addView(page);
-        setContentView(scroll);
+        look = new LauncherLook(this);
+        setContentView(look.root);
         refresh();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        look.hideSystemBars();
         refresh();
         if (getIntent() != null && getIntent().getBooleanExtra(EXTRA_RELAUNCH, false)) {
             getIntent().removeExtra(EXTRA_RELAUNCH);
@@ -166,19 +105,70 @@ public final class LauncherActivity extends Activity {
         }
     }
 
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) look.hideSystemBars();
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent e) {
+        return look.onKey(e) || super.dispatchKeyEvent(e);
+    }
+
+    private SharedPreferences prefs() { return getSharedPreferences(DsPad.PREFS, MODE_PRIVATE); }
+
+    /** Builds the start screen (LauncherLook: the KH Birth by Sleep port's style). */
     private void refresh() {
-        final boolean haveRom = rom().isFile();
-        final StringBuilder s = new StringBuilder();
-        s.append(haveRom ? "Game ROM: ready" : "Choose your own Spirit Tracks (USA) ROM to start.");
-        s.append('\n');
-        s.append(save().isFile() ? "Save: " + new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
-                .format(new Date(save().lastModified())) : "Save: none yet (the game makes one when you save)");
-        status.setText(s);
-        play.setEnabled(haveRom);
-        play.setAlpha(haveRom ? 1f : 0.5f);
-        final boolean haveResume = haveRom && resume("state").isFile();
-        cont.setVisibility(haveResume ? View.VISIBLE : View.GONE);
-        if (haveResume) cont.setText("Continue  (" + resumeTime() + ")");
+        final LinearLayout column = look.begin(TITLE, SUBTITLE, new LauncherArt());
+        if (!rom().isFile()) {
+            column.addView(look.text("First-time setup", 20, Color.WHITE, true));
+            final TextView info = look.text(ROM_HELP, 15, 0xFFDDDDDD, false);
+            info.setPadding(0, look.dp(8), 0, look.dp(20));
+            column.addView(info);
+            look.button(column, "Choose game ROM (.nds)…", null, () -> pick(PICK_ROM)).requestFocus();
+            return;
+        }
+        final View first;
+        if (resume("state").isFile()) {
+            first = look.button(column, "Continue", "Where you last quit · " + resumeTime(), () ->
+                    startActivity(new Intent(this, GameActivity.class).putExtra(GameActivity.EXTRA_CONTINUE, true)));
+            look.button(column, "Start game", "From the title screen (in-game saves)",
+                    () -> startActivity(new Intent(this, GameActivity.class)));
+        } else {
+            first = look.button(column, "Start game", "From the title screen",
+                    () -> startActivity(new Intent(this, GameActivity.class)));
+        }
+        final LinearLayout row = look.row(column);
+        look.small(row, "Save file", this::saveFile);
+        look.small(row, "Settings", () -> look.settings(prefs(), GPU_DEFAULT, this::refresh));
+        look.small(row, "Game ROM", this::gameRom);
+        look.note(column, LauncherLook.summary(prefs(), GPU_DEFAULT) + "  ·  Save states: in the game's ≡ menu");
+        first.requestFocus();
+    }
+
+    private void saveFile() {
+        final String when = save().isFile() ? "Last saved: " + new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+                .format(new Date(save().lastModified())) : "No save yet (the game makes one when you save in it).";
+        look.dialog().setTitle("Save file").setMessage(when + "\n\nImport a save from melonDS (.sav): the save "
+                        + "already here is kept as a dated backup. Export copies the save out.")
+                .setPositiveButton("Import…", (d, w) -> pick(PICK_SAVE))
+                .setNeutralButton("Export…", (d, w) -> {
+                    final Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                    i.addCategory(Intent.CATEGORY_OPENABLE);
+                    i.setType("application/octet-stream");
+                    i.putExtra(Intent.EXTRA_TITLE, SAVE_NAME);
+                    startActivityForResult(i, EXPORT_SAVE);
+                })
+                .setNegativeButton("Back", null).show();
+    }
+
+    private void gameRom() {
+        look.dialog().setTitle("Game ROM").setMessage("Ready: " + rom().getName() + " ("
+                        + (rom().length() >> 20) + " MB)\n\nChoose the ROM again to replace it. Saves and save "
+                        + "states stay.")
+                .setPositiveButton("Choose ROM…", (d, w) -> pick(PICK_ROM))
+                .setNegativeButton("Back", null).show();
     }
 
     /** When the resume state was written ("MM-DD HH:MM", from resume.txt). */
@@ -192,27 +182,6 @@ public final class LauncherActivity extends Activity {
         return new SimpleDateFormat("MM-dd HH:mm", Locale.US).format(new Date(resume("state").lastModified()));
     }
 
-    private Button button(LinearLayout box, String text, Runnable action) {
-        final boolean landscape = getResources().getConfiguration().orientation
-                == Configuration.ORIENTATION_LANDSCAPE;
-        final Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        if (landscape) {
-            b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-            b.setMinHeight(dp(36));
-            b.setMinimumHeight(dp(36));
-            b.setPadding(dp(8), 0, dp(8), 0);
-        }
-        b.setOnClickListener(v -> action.run());
-        final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(landscape ? 300 : 320),
-                landscape ? dp(36) : ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(landscape ? 3 : 8);
-        box.addView(b, lp);
-        return b;
-    }
-
-    private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
     private void pick(int request) {
         final Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -226,6 +195,12 @@ public final class LauncherActivity extends Activity {
         super.onActivityResult(request, result, data);
         if (result != RESULT_OK || data == null || data.getData() == null) return;
         final Uri uri = data.getData();
+        if (request == LauncherLook.REQUEST_BACKGROUND) {
+            final String error = look.importBackground(uri);
+            refresh();
+            if (error != null) look.dialog().setMessage(error).setPositiveButton("OK", null).show();
+            return;
+        }
         // Large copies off the UI thread.
         new Thread(() -> {
             String message;
