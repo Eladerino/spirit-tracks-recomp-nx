@@ -89,6 +89,7 @@ std::atomic<int> wide_mode{-1};
 std::atomic<int> hd_text{-1};
 std::atomic<int> map_x{0}, map_y{0}, map_w{0}, map_h{0};
 std::atomic<bool> map_hidden{false};
+std::atomic<int> map_dy{0};
 }  // namespace st::pad
 
 namespace {
@@ -702,6 +703,24 @@ private:
             st::Rect r{bx, by, bw, bh};
             if (bw / bh > aspect) r.w = bh * aspect, r.x = bx;  // (anchored to the corner it sits in: left and bottom)
             else r.h = bw / aspect, r.y = by + bh - r.h;
+            // A text box under it (dialogue, a choice): the minimap goes up, just above the highest such box.
+            {
+                const st::Rect& main_r = v.top_shown ? v.top : v.bottom;
+                const int main_layer = v.top_shown ? 0 : 1;
+                const int main_extra = main_layer == frame.wide_layer ? extra : 0;
+                const float mx = main_r.w / (256.0f + 2.0f * float(main_extra)), my = main_r.h / 192.0f;
+                std::vector<st::TextBox> boxes;
+                st::text_boxes(main_layer, boxes);
+                float bottom = r.y + r.h;
+                for (const st::TextBox& b : boxes) {
+                    const float x0 = main_r.x + (b.x0 + float(main_extra)) * mx, x1 = main_r.x + (b.x1 + float(main_extra)) * mx;
+                    const float y0 = main_r.y + b.y0 * my, y1 = main_r.y + b.y1 * my;
+                    if (x0 < r.x + r.w && x1 > r.x && y0 < bottom && y1 > r.y) bottom = std::min(bottom, y0 - 6.0f);
+                }
+                const float dy = std::min(0.0f, std::max(bottom - r.h, 0.0f) - r.y);
+                r.y += dy;
+                st::pad::map_dy.store(int(std::lround(dy)));
+            }
             gl_->screen(frame, layer, r, view.smooth, extra > 0);
             gl_->draw_hd_text(layer, r, layer_extra, layer_extra ? frame_hud.data() : nullptr, layer_extra ? frame_hud_count : 0);
         }

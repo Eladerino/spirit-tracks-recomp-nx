@@ -49,6 +49,13 @@ void hd_text_reset();
 std::vector<uint8_t> hd_text_save();
 bool hd_text_restore(const std::vector<uint8_t>& data);
 
+// The text boxes shown on `layer` this frame (DS pixels: x0, y0, x1, y1), HD text on or off: the minimap keeps
+// out of them (main.cpp).
+struct TextBox {
+    float x0, y0, x1, y1;
+};
+void text_boxes(int layer, std::vector<TextBox>& out);
+
 // Copy the glyphs currently visible on `layer` (0 = top screen, 1 = bottom screen).
 void hd_text_draw_list(int layer, std::vector<HdGlyph>& out);
 

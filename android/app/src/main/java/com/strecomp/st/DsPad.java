@@ -357,15 +357,25 @@ public final class DsPad extends View {
     // The game hides its HUD (cutscenes): the frontend then leaves the minimap out, and so do its frame and its tap.
     // Asked a few times a second while the minimap is on.
     private boolean mapHidden;
+    private int mapDy;  // the frontend draws it this far up (a text box under its place)
+
+    // The minimap as drawn now: its place, slid up above a text box.
+    private RectF mapShownRect(Control c) {
+        final RectF rr = mapRect(c);
+        rr.offset(0, mapDy);
+        return rr;
+    }
     private final Runnable mapPoll = new Runnable() {
         @Override
         public void run() {
             final boolean h = StInput.nativeMapHidden();
-            if (h != mapHidden) {
+            final int dy = StInput.nativeMapOffset();
+            if (h != mapHidden || dy != mapDy) {
                 mapHidden = h;
+                mapDy = dy;
                 invalidate();
             }
-            postDelayed(this, 250);
+            postDelayed(this, 100);
         }
     };
 
@@ -403,7 +413,7 @@ public final class DsPad extends View {
     }
 
     private void drawMap(Canvas canvas, Control c, int alpha) {
-        final RectF rr = mapRect(c);
+        final RectF rr = editing ? mapRect(c) : mapShownRect(c);
         final float corner = rr.height() * 0.06f;
         if (editing) {  // (in the editor: show where it is)
             fill.setColor(0xFF203040);
@@ -434,7 +444,7 @@ public final class DsPad extends View {
         for (Control c : controls) {
             if (editing ? !shownInEditor(c) : !visible(c)) continue;
             if (c.kind == KIND_MAP) {
-                if (!portrait() && !bothShown && mapRect(c).contains(x, y) && best == null) {
+                if (!portrait() && !bothShown && (editing ? mapRect(c) : mapShownRect(c)).contains(x, y) && best == null) {
                     best = c;
                     bestD = Float.MAX_VALUE / 2;  // (a round control over it still wins)
                 }
@@ -641,6 +651,10 @@ public final class DsPad extends View {
     public boolean onTouchEvent(MotionEvent e) {
         final int action = e.getActionMasked();
         if (editing) return editTouch(e, action);
+        if (mapTouch(e, action)) {
+            invalidate();
+            return true;
+        }
         switch (action) {
             case MotionEvent.ACTION_DOWN:
             case MotionEvent.ACTION_POINTER_DOWN: {
@@ -667,6 +681,133 @@ public final class DsPad extends View {
         send();
         invalidate();
         return true;
+    }
+
+    // ---- the minimap's own gestures (not in the editor) -----------------------------------------------------------------
+    // A tap swaps the screens; held still for a moment it follows the finger (moved); a second finger then pinches its
+    // size. Kept like the editor's moves ("lay_land_map"). True when the event was the minimap's.
+    private static final int MAP_IDLE = 0, MAP_PRESS = 1, MAP_DRAG = 2, MAP_PINCH = 3;
+    private int mapState = MAP_IDLE, mapPointer = -1, pinchPointer = -1;
+    private float mapDownX, mapDownY, mapStartCx, mapStartCy, pinchStartDist, pinchStartScale;
+    private final Runnable mapLongPress = () -> {
+        if (mapState != MAP_PRESS) return;
+        mapState = MAP_DRAG;
+        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        invalidate();
+    };
+
+    private Control mapControl() {
+        for (Control c : controls)
+            if (c.kind == KIND_MAP) return c;
+        return null;
+    }
+
+    private void placeMap(Control c, float centreX, float centreY) {
+        final float w = getWidth(), h = getHeight();
+        centreX = Math.max(0, Math.min(w, centreX));
+        centreY = Math.max(0, Math.min(h, centreY));
+        if (!c.moved) c.mScale = 1f;
+        c.moved = true;
+        c.mSide = centreX < w / 2f ? LEFT : RIGHT;
+        c.mx = (c.mSide == LEFT ? centreX : w - centreX) / h;
+        c.my = centreY / h;
+    }
+
+    private static float distance(MotionEvent e, int a, int b) {
+        final int ia = e.findPointerIndex(a), ib = e.findPointerIndex(b);
+        if (ia < 0 || ib < 0) return 0f;
+        return (float) Math.hypot(e.getX(ia) - e.getX(ib), e.getY(ia) - e.getY(ib));
+    }
+
+    private boolean mapTouch(MotionEvent e, int action) {
+        final Control m = mapControl();
+        if (m == null) return false;
+        final float slop = getHeight() * 0.02f;
+        switch (action) {
+            case MotionEvent.ACTION_DOWN: {
+                final Control c = controlAt(e.getX(0), e.getY(0));
+                if (c != m) return false;
+                mapState = MAP_PRESS;
+                mapPointer = e.getPointerId(0);
+                mapDownX = e.getX(0);
+                mapDownY = e.getY(0);
+                final RectF rr = mapRect(m);
+                mapStartCx = rr.centerX();
+                mapStartCy = rr.centerY();
+                postDelayed(mapLongPress, 400);
+                return true;
+            }
+            case MotionEvent.ACTION_POINTER_DOWN: {
+                if (mapState == MAP_IDLE) return false;
+                if (pinchPointer >= 0) return true;
+                removeCallbacks(mapLongPress);
+                pinchPointer = e.getPointerId(e.getActionIndex());
+                pinchStartDist = Math.max(1f, distance(e, mapPointer, pinchPointer));
+                final RectF rr = mapRect(m);
+                placeMap(m, rr.centerX(), rr.centerY());  // (from here its size is the editor's factor)
+                pinchStartScale = m.mScale;
+                mapState = MAP_PINCH;
+                return true;
+            }
+            case MotionEvent.ACTION_MOVE: {
+                if (mapState == MAP_IDLE) return false;
+                final int i = e.findPointerIndex(mapPointer);
+                if (i < 0) return true;
+                final float dx = e.getX(i) - mapDownX, dy = e.getY(i) - mapDownY;
+                if (mapState == MAP_PRESS && Math.hypot(dx, dy) > slop) {
+                    removeCallbacks(mapLongPress);  // (moved before the long press: just a swipe, nothing happens)
+                    mapState = MAP_IDLE;
+                    mapPointer = -1;
+                    return true;
+                }
+                if (mapState == MAP_DRAG) placeMap(m, mapStartCx + dx, mapStartCy + dy);
+                if (mapState == MAP_PINCH) {
+                    final float d = distance(e, mapPointer, pinchPointer);
+                    if (d > 0) m.mScale = Math.max(0.5f, Math.min(3f, pinchStartScale * d / pinchStartDist));
+                }
+                return true;
+            }
+            case MotionEvent.ACTION_POINTER_UP: {
+                if (mapState == MAP_IDLE) return false;
+                final int id = e.getPointerId(e.getActionIndex());
+                if (id == pinchPointer) {
+                    pinchPointer = -1;
+                    saveLayout();
+                    mapState = MAP_DRAG;
+                    final int i = e.findPointerIndex(mapPointer);
+                    if (i >= 0) {  // (go on dragging from here)
+                        mapDownX = e.getX(i);
+                        mapDownY = e.getY(i);
+                        final RectF rr = mapRect(m);
+                        mapStartCx = rr.centerX();
+                        mapStartCy = rr.centerY();
+                    }
+                } else if (id == mapPointer) {
+                    finishMap(m, false);
+                }
+                return true;
+            }
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL: {
+                if (mapState == MAP_IDLE) return false;
+                finishMap(m, action == MotionEvent.ACTION_UP);
+                return true;
+            }
+            default:
+                return mapState != MAP_IDLE;
+        }
+    }
+
+    private void finishMap(Control m, boolean tapAllowed) {
+        removeCallbacks(mapLongPress);
+        if (mapState == MAP_PRESS && tapAllowed) {  // a tap: swap the screens
+            performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+            setScreen(topShown ? StInput.SCREEN_TOUCH : StInput.SCREEN_TOP);
+        } else if (mapState == MAP_DRAG || mapState == MAP_PINCH) {
+            saveLayout();
+        }
+        mapState = MAP_IDLE;
+        mapPointer = pinchPointer = -1;
     }
 
     private void press(int id, Control c, float x, float y) {

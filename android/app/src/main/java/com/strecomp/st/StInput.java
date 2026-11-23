@@ -31,6 +31,9 @@ public final class StInput {
     /** The game shows no HUD now (a cutscene): the minimap is not drawn, nor its frame. */
     public static native boolean nativeMapHidden();
 
+    /** How far up (pixels, negative) the minimap is drawn this frame: a text box is under its place. */
+    public static native int nativeMapOffset();
+
     /** The picture filter: smooth (on) or sharp pixels (off). */
     public static native void nativeSetSmooth(boolean on);
 

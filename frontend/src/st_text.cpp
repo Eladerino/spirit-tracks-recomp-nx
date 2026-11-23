@@ -58,6 +58,8 @@ std::mutex g_mutex;
 std::unordered_map<uint32_t, ObjCanvas> g_canvases;
 std::vector<PendingEntry> g_pending[2];  // indexed by 2D engine (0 = A, 1 = B)
 std::vector<HdGlyph> g_visible[2];       // indexed by screen layer (0 = top, 1 = bottom)
+std::vector<TextBox> g_box_pending[2];   // the text boxes drawn this frame, by 2D engine
+std::vector<TextBox> g_box_visible[2];   // ... as shown, by screen layer
 
 stbtt_fontinfo g_font{};
 std::atomic<int> g_font_state{0};  // 0 uninit, 1 ready, -1 failed
@@ -262,6 +264,13 @@ bool hd_text_restore(const std::vector<uint8_t>& data) {
     return true;
 }
 
+void text_boxes(int layer, std::vector<TextBox>& out) {
+    out.clear();
+    if (layer < 0 || layer > 1) return;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    out = g_box_visible[layer];
+}
+
 void hd_text_draw_list(int layer, std::vector<HdGlyph>& out) {
     out.clear();
     if (layer < 0 || layer > 1) return;
@@ -398,6 +407,9 @@ extern "C" void st_text_obj_draw(NtrCpu* c) {
         // canvas from here, so its next page of text (after the game clears it) is drawn in HD.
         std::lock_guard<std::mutex> lock(st::g_mutex);
         st::g_canvases.try_emplace(this_obj);
+        // Where the box is, for the minimap (with HD text off too).
+        if (box_w > 0 && box_h > 0 && box_w <= 512 && box_h <= 384)
+            st::g_box_pending[engine].push_back({float(screen_x), float(screen_y), float(screen_x + box_w), float(screen_y + box_h)});
     }
 
     std::lock_guard<std::mutex> lock(st::g_mutex);
@@ -450,6 +462,9 @@ extern "C" void st_text_oam_flush(NtrCpu* c) {
     auto& pending = st::g_pending[engine];
     auto& visible = st::g_visible[layer];
     visible.clear();
+    st::g_box_visible[layer].clear();
+    if (obj_on && !(bright_mode != 0 && bright_factor >= 16)) st::g_box_visible[layer] = st::g_box_pending[engine];
+    st::g_box_pending[engine].clear();
 
     if (obj_on && !pending.empty() && !(bright_mode != 0 && bright_factor >= 16)) {
         visible.reserve(pending.size());
