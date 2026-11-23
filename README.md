@@ -12,7 +12,9 @@ same engine, program and Android app, set up for Spirit Tracks.
 > recompile your ROM on your PC, and nothing made from it is ever committed or shared. Please do not share the builds
 > you make (the game folders and the APK contain the game).
 
-*Screenshots will come after the first build.*
+![Spirit Tracks Recomp on an Android phone at 21:9, with the minimap in the corner](docs/images/phone-21x9-minimap.jpg)
+
+*On a Moto G Stylus 2025: 21:9 widescreen, HD text, and the minimap of the top screen in the corner.*
 
 ## Features
 
@@ -35,6 +37,9 @@ same engine, program and Android app, set up for Spirit Tracks.
   game (`-Variant clean`) has touch controls only for now.
   **In progress:** an analog stick for the stock game with no patch at all, the way Phantom Hourglass's works (a
   stylus held near Link, from the game's own touch controls).
+- **Minimap** (Android, landscape): the other screen (the map, most of the time) drawn small in a corner, like a
+  game's corner map, so the map stays in view without turning the phone. Bottom-left by default, sized for the phone's
+  screen; move and resize it in "Move and resize controls", switch it off in the menu, and tap it to swap the screens.
 - **Android**: touch is the stylus; an on-screen D-pad, optional A B X Y, L R, Start/Select; Mic, Lid, Top-screen and
   Rotate buttons; portrait mode with both screens like a DS held open; gamepads.
 - **The microphone** (the pan flute, the whirlwind) is a key or a button.
