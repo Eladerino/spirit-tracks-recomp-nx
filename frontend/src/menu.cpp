@@ -56,8 +56,7 @@ Menu::Geometry Menu::geometry(const MenuState& s, float win_w, float win_h, floa
     r[kFps] = {"FPS counter", {"Off", "Top L", "Top R", "Bot L", "Bot R"}, s.fps ? s.fps_corner + 1 : 0,
                {true, true, true, true, true}, {}, {}};
     r[kFullscreen] = {"Fullscreen", {"Off", "On"}, s.fullscreen ? 1 : 0, {true, true}, {}, {}};
-    // (Analog: not yet in Spirit Tracks, frontend/src/st_stick.cpp.)
-    r[kStick] = {"Gamepad's left stick", {"D-pad", "Analog"}, 0, {true, false}, {}, {}};
+    r[kStick] = {"Gamepad's left stick", {"D-pad", "Analog"}, s.stick ? 1 : 0, {true, true}, {}, {}};
     r[kContinue] = {"", {s.resume_time.empty() ? std::string("Continue: nothing yet") : "Continue from " + s.resume_time},
                     -1, {!s.resume_time.empty()}, {}, {}};
     r[kQuit] = {"", {"Quit the game"}, -1, {true}, {}, {}};
@@ -128,7 +127,7 @@ MenuResult Menu::choose(int row, int choice, MenuState& s) {
             if (choice) s.fps_corner = choice - 1;
             break;
         case kFullscreen: s.fullscreen = choice == 1; break;
-        case kStick: s.stick = false; break;  // (see geometry())
+        case kStick: s.stick = choice == 1; break;
         case kContinue: return s.resume_time.empty() ? MenuResult::None : MenuResult::Continue;
         case kQuit: return MenuResult::Quit;
         default: return MenuResult::None;

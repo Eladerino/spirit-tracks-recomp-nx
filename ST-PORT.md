@@ -11,10 +11,10 @@ for Spirit Tracks's. Build on the home PC with `scripts\RUN-ALL.ps1` (see `scrip
 |---|---|
 | Game code / config | BKIE (USA), `frontend/config/bkie/` |
 | `functions.txt` | 32,522 functions from zeldaret/st (`config/usa/arm9`, commit 1f284ce) by `tools/import_dsd.py`: main 2,153, ITCM 227, 114 overlays (ov097 and ov100 have none); 42 DS Protect functions flagged `!dsprot` |
-| `hooks.txt` | OS_Save/Load/InitContext, OS_IrqHandler (below), and the six DSProt_* wrappers |
+| `hooks.txt` | OS_Save/Load/InitContext, OS_IrqHandler (below), the six DSProt_* wrappers, and the D-pad patch's movement (0x02044B28) for the analog stick |
 | `st_hooks.cpp` | OS_IRQTable / ThreadSwitch addresses; `st_dsprot_detect` (r0 = 0) and `st_dsprot_detect_not` (calls the callback, r0 = 1) |
-| ROMs | clean USA and the D-pad + QoL patch (`6896c1db…`) by SHA-1; the D-pad-only patch (both made locally by `tools/bps_patch.py`) by CRC-32 + size until its SHA-1 is known (`common/src/known_roms.cpp`) |
-| Engine | `NTR_ABI_VERSION` 2: `NtrGameInfo.rom_sha1`, the SHA-1 of the ROM the module was recompiled from; the program refuses another ROM (a patched ROM's code is not the clean one's) |
+| ROMs | clean USA, the D-pad patch (`6a63d887…`) and the D-pad + QoL patch (`6896c1db…`) by SHA-1 (`common/src/known_roms.cpp`); one build plays all three (below) |
+| Engine | `NTR_ABI_VERSION` 2: `NtrGameInfo.rom_sha1`, the SHA-1 of the ROM the module was recompiled from; the program takes any listed BKIE ROM with any listed module (below) |
 | Save | 8 Mbit flash (1 MB): melonDS's ROM list gives BKIE save type 7; the launcher imports 1 MB saves |
 | Names | SpiritTracks.exe, st_game.dll / libst_game.so, com.strecomp.st (StInput, StMenu), ST_* CMake variables, logcat tag strecomp |
 | Scripts | `-Variant qol|dpad|clean` (presets release / release-dpad / release-clean, game folders SpiritTracks / -DPad / -Clean), logs in `logs\spirit-tracks`, patched ROMs in `st-roms\`, APKs `SpiritTracks-<variant>-*.apk` |
@@ -60,6 +60,46 @@ recompressed ARM9) and the file layout all change. The decomp's config describes
   listed functions) is found (`recomp_report.txt` in each build folder). If needed, add the hack's functions to a
   variant-specific list (the recompiler's discovery already follows BL targets).
 
+Checked 2026-11-22 (clean, D-pad and QoL builds): the three `recomp_report.txt` are identical, and nothing moves:
+
+- decompressed ARM9: the patches differ from the clean dump only at 0x02000B78 (2 bytes) and 0x02044B00..0x02044D78
+  (the D-pad hack's 12 routines, outside every listed function; they read nothing of their own bytes as data);
+- overlays: 7 functions changed in code (branches into the hack; 73 more differ only in a name comment), no function
+  start moved, the overlay table (addresses, sizes, probe words) identical;
+- files: the same contents by path (the trimmed ROM numbers them from 183 on one lower; the game opens them by path);
+- D-pad vs D-pad + QoL: the same ARM9 and files: the QoL hack lives in the ARM7 (160,048 -> 161,452 bytes), which
+  melonDS runs from the ROM.
+
+So a module made from a patched ROM plays the clean dump (with the D-pad controls; without QoL) and both patched ROMs;
+one made from the clean dump should play the patched ROMs without the D-pad controls (not tested).
+main.cpp and the Android launcher take any listed BKIE ROM; the scripts still build one variant at a time.
+
+## The analog stick
+
+zeldaret/st has no PlayerControl (Phantom Hourglass's stick reads Link's touch state there). The touch movement is
+`UnkStruct_027e0ce0_40_Base_14::func_ov017_020be44c` (data_027e0ce0 -> mUnk_40 -> mUnk_014): Link's screen position
+is only on its stack, but with no stylus down it ends in the D-pad patch's 0x02044B28, which writes mUnk_3C (the
+stylus's distance from Link, fx32 pixels: 0x60000 = 96 Y-walk, 0x5F0000 = 1520 run) and mUnk_44/46 (camera yaw from
+0x02078678 with r0 = r8, plus 0 down, 0x4000 right, 0x8000 up, 0xC000 left: its table at 0x02044BA4), and clears
+mUnk_40/5C. `st_stick_move` (hooks.txt, `instead`) writes the same from the stick, so the stick needs a module built
+from a patched ROM; on a clean-built module it does nothing.
+
+## Widescreen (fixed 2026-11-22)
+
+Phantom Hourglass builds its projection (MTX_PerspectiveW, 0x02022BCC here) every frame, and the hook there widens
+it and keeps the scene marked wide (ffcc_wide_scene counts down from 8 per frame). Spirit Tracks builds it only when
+the camera's field of view changes and sets the viewport once per scene, so 16:9 and 21:9 showed a 4:3 picture pinned
+to the left: after 8 frames the scene counted as 4:3, and a scene continued from a save state (every widescreen change
+restarts from one) kept its 4:3 matrix and viewport. Now:
+
+- `st_load_mtx44` (hooks.txt, G3_LoadMtx44 0x020249EC, `before`): a perspective matrix whose aspect is one of ours
+  gets the chosen one (also back to 4:3), in the game's stored copy, and a wide one keeps the scene marked wide;
+- third_party/CMakeLists.txt (GPU3D::VBlank): a full-screen viewport follows the scene's width every frame (it was
+  only set when the game sent VIEWPORT).
+
+Checked on the phone from a continued save state: 16:9 and 21:9 fill the screen with the HUD at the edges, 4:3 is
+back to normal.
+
 ## GPU dots (fixed by Compute)
 
 On a Pixel 8 (Mali-G715, OpenGL ES 3.2) melonDS's OpenGL renderer showed single cyan pixels along polygon edges (Link's
@@ -90,12 +130,14 @@ when a phone cannot run Compute (or with `--renderer opengl`). The temporary deb
   Tracks's touch state is not found yet: `frontend/src/st_stick.cpp` is off and the menus hide it) and PH's
   `hud_sides` (PH's own HUD). Widescreen needs the generated C made again (2-BUILD: hooks.txt changed); an APK built
   from the old generated C draws 16:9 without widening the 3D. (On the work PC, its security software deleted
-  buildeleaseecompiler
+  build
+elease
+ecompiler
 tr-recomp.exe when it was run; 2-BUILD at home builds it again.)
 
 ## Next
 
 1. First home build: `RUN-ALL.ps1` (D-pad + QoL), then `RUN-ALL.ps1 -Variant clean`; compare both `recomp_report.txt`.
-2. List the D-pad-only ROM's SHA-1 (D-pad + QoL is done) (printed by `rominfo`, or in the error box) in `known_roms.cpp` and the guard.
+2. (Done 2026-11-22: the D-pad-only ROM's SHA-1 is listed.)
 3. Android: `RUN-ANDROID.ps1`.
 4. Screenshots for the README.

@@ -39,8 +39,13 @@ import java.util.Locale;
  */
 public final class LauncherActivity extends Activity {
     private static final int PICK_ROM = 1, PICK_SAVE = 2, EXPORT_SAVE = 3;
-    // The game in this APK was recompiled from one ROM (clean, D-pad, or D-pad + QoL), and only runs with that one.
-    private static final String ROM_SHA1 = BuildConfig.ROM_SHA1;
+    // Spirit Tracks (USA): the clean dump and the D-pad and D-pad + QoL patches made from it share one recompiled game
+    // (common/src/known_roms.cpp), so the app takes any of them. BuildConfig.ROM_SHA1 is the one the game was built from.
+    private static final String[] KNOWN = {
+            "1f0921b5e99db9d92d24710f1b004e4f3c997b73",  // clean (USA, Australia) (En,Fr,Es)
+            "6a63d88702c34da626e273dfca4931d52ac4551b",  // D-pad patch v0.9c
+            "6896c1db2b3a725cb991f711a875fc2228b7620e",  // D-pad + QoL patch v0.9c
+    };
     private static final int SAVE_SIZE = 1024 * 1024;  // the cartridge's 8 Mbit flash
 
 
@@ -78,9 +83,9 @@ public final class LauncherActivity extends Activity {
     // ---- per game ----
     private static final String TITLE = "The Legend of Zelda\nSpirit Tracks";
     private static final String SUBTITLE = "Nintendo DS · native Android port";
-    private static final String ROM_HELP = "Choose the ROM this app was built from (Spirit Tracks " + BuildConfig.ROM_VARIANT
-            + ", made from your own USA dump; the PC scripts copy it in for you). Nothing is downloaded. A save from "
-            + "melonDS (.sav) can be imported afterwards under Save file.";
+    private static final String ROM_HELP = "Choose your Spirit Tracks (USA) ROM: the clean dump, or the D-pad or D-pad + QoL "
+            + "patch made from it (the PC scripts copy one in for you). Nothing is downloaded. A save from melonDS (.sav) "
+            + "can be imported afterwards under Save file.";
     private static final String SAVE_NAME = "SpiritTracks.sav";
     private static final boolean GPU_DEFAULT = true;   // GameActivity: prefs.getBoolean("gpu", ...)
 
@@ -224,15 +229,17 @@ public final class LauncherActivity extends Activity {
         //noinspection ResultOfMethodCallIgnored
         dest.getParentFile().mkdirs();
         final String sha1 = copy(uri, tmp);
-        if (ROM_SHA1.isEmpty() || ROM_SHA1.equals(sha1)) {
-            if (dest.exists() && !dest.delete()) throw new IOException("cannot replace the ROM");
-            if (!tmp.renameTo(dest)) throw new IOException("cannot store the ROM");
-            return "Game ROM ready. Press Play.";
+        for (String k : KNOWN) {
+            if (k.equals(sha1)) {
+                if (dest.exists() && !dest.delete()) throw new IOException("cannot replace the ROM");
+                if (!tmp.renameTo(dest)) throw new IOException("cannot store the ROM");
+                return "Game ROM ready. Press Play.";
+            }
         }
         //noinspection ResultOfMethodCallIgnored
         tmp.delete();
-        return "That file is not the ROM this app was built from: Spirit Tracks " + BuildConfig.ROM_VARIANT
-                + " (SHA-1 " + ROM_SHA1 + ").\nThis file's SHA-1: " + sha1;
+        return "That file is not a supported Spirit Tracks dump (USA: clean, D-pad patch, or D-pad + QoL patch v0.9c)."
+                + "\nThis file's SHA-1: " + sha1;
     }
 
     private String importSave(Uri uri) throws IOException {

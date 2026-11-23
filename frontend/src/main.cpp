@@ -49,6 +49,7 @@
 #include "ntr/rom.hpp"
 #include "ntr/runtime.hpp"
 #include "pad_input.hpp"
+#include "perf_hint.hpp"
 #include "st_stick.hpp"
 #include "st_hooks.hpp"
 #include "png.hpp"
@@ -433,11 +434,15 @@ public:
         int tx = s_.touch_x.load(), ty = s_.touch_y.load();
         bool blow = live && s_.blow.load();
         bool blow_sample = live && s_.blow_sample.load();
-        if (live && s_.stick_on.load()) {  // (a finger on the touch screen comes first)
-            const float sx = touching ? 0.0f : float(s_.stick_x.load()) / 1000.0f;
-            const float sy = touching ? 0.0f : float(s_.stick_y.load()) / 1000.0f;
-            int x = 0, y = 0;
-            if (stick_.touch_for(*rt_, sx, sy, x, y)) touching = true, tx = x, ty = y;
+        // The analog stick (st_stick.hpp: the game's code reads it this frame); a finger on the touch screen comes first.
+        // It also holds the D-pad direction it points to (8 ways): the D-pad patch decides from the D-pad whether Link
+        // is moving at all (its 0x02044CB8: the walk/run state), and the stick then sets the exact direction and speed.
+        if (live && s_.stick_on.load() && !touching) {
+            const float sx = float(s_.stick_x.load()) / 1000.0f, sy = float(s_.stick_y.load()) / 1000.0f;
+            st::set_stick(sx, sy);
+            held |= st::stick_dpad(sx, sy);
+        } else {
+            st::set_stick(0.0f, 0.0f);
         }
         bool quit = false;
         for (const ScriptStep& st : script_) {
@@ -729,15 +734,25 @@ private:
     void pace() {
         using clock = std::chrono::steady_clock;
         const auto now = clock::now();
+        // This frame's work (emulating and drawing) ran from the end of the last wait until now: tell Android, so it
+        // keeps the cores fast enough for the deadline (perf_hint.hpp). Not during fast-forward or a pause.
+        perf_hint_.start(int64_t(kFrameSeconds * 1e9));
+        if (work_start_.time_since_epoch().count() != 0 && !s_.paused.load() && !s_.fast_forward.load())
+            perf_hint_.report(std::chrono::duration_cast<std::chrono::nanoseconds>(now - work_start_).count());
         if (unpaced_ || s_.fast_forward.load()) {
             next_ = now;
+            work_start_ = clock::now();
             return;
         }
         const auto period = std::chrono::duration_cast<clock::duration>(std::chrono::duration<double>(kFrameSeconds));
         if (next_.time_since_epoch().count() == 0 || now - next_ > std::chrono::milliseconds(100)) next_ = now;
         next_ += period;
         if (next_ > now) SDL_DelayPrecise(uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(next_ - now).count()));
+        work_start_ = clock::now();
     }
+
+    st::PerfHint perf_hint_;
+    std::chrono::steady_clock::time_point work_start_{};  // when this frame's work began (the end of the last wait)
 
     Shared& s_;
     SDL_Window* window_;  // (the window the game thread draws to)
@@ -758,7 +773,6 @@ private:
     uint64_t fps_since_ = 0, fps_frames_ = 0;  // (the FPS counter)
     std::chrono::steady_clock::time_point next_{};
     st::GlPresenter* gl_ = nullptr;  // (null: the phone's fallback, the main thread draws)
-    st::Stick stick_;
 #ifndef __ANDROID__
     int thumbs_version_ = -1;  // the slot pictures in gl_ (states_version)
     std::array<std::string, kSlots> times_{};
@@ -967,10 +981,16 @@ int main(int argc, char** argv) {
     ntr::GameCode code;
     std::string error, module_rom;
     if (!st::load_game_module(module_path, code, module_rom, error)) return error_box(error), 1;
-    // The recompiled code is the code of one ROM: the clean game and the patched ones each need their own build.
-    if (module_rom != rom_sha1)
-        return error_box(module_path.string() + " was built from another ROM (SHA-1 " + module_rom + ") than " + rom_path.string() +
-                         " (" + known->region + ", SHA-1 " + rom_sha1 + "): use the ROM it was built from, or rebuild (2-BUILD.ps1)."), 1;
+    // The clean, D-pad and D-pad + QoL ROMs share one recompiled game (known_roms.cpp): the module's ARM9 code decides
+    // the D-pad controls (a module built from a patched ROM has them, with any of the three), the ROM gives the files
+    // and the ARM7 (the QoL changes). A module made from another game or an unlisted ROM is still refused.
+    const ntr::KnownRom* module_known = nullptr;
+    for (const ntr::KnownRom& r : ntr::known_roms())
+        if (*r.sha1_hex && module_rom == r.sha1_hex) module_known = &r;
+    if (!module_known || std::string(module_known->game_code) != known->game_code)
+        return error_box(module_path.string() + " was built from a ROM this program does not know (SHA-1 " + module_rom +
+                         "): rebuild it (2-BUILD.ps1) from a Spirit Tracks (USA) dump."), 1;
+    SDL_Log("ROM: %s (%s); game built from %s", known->region, rom_sha1.c_str(), module_known->region);
     std::vector<ScriptStep> script;
     if (!script_path.empty() && !load_script(script_path, script, error)) return error_box(error), 1;
 

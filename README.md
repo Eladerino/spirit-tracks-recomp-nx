@@ -21,9 +21,18 @@ same engine, program and Android app, set up for Spirit Tracks.
 - **Upscaling**: a GPU renderer draws 2D and 3D at 2x-8x on a PC, 2x-6x on a phone (OpenGL ES 3.2), or the DS's exact
   picture with the software renderer. Sharp or smooth filtering; fit (the DS's shape) or stretched to the screen.
 - **Save states**: 12 slots with a picture of each, on PC and phone. A state never touches the game's own save.
-- **Three versions of the game**, each built on its own: the **D-pad + QoL** patch (the default: walk with the D-pad,
-  L/R blow the pan flute, a faster train), the **D-pad** patch alone, or the **clean** retail game. The patches are
-  applied to your own ROM on your PC.
+- **Clean or patched ROM**: the game plays from your clean USA dump, the **D-pad** patch, or the **D-pad + QoL**
+  patch (walk with the D-pad, L/R blow the pan flute, a faster train). One build takes all three: it is made from the
+  D-pad + QoL ROM by default (the patches are applied to your own ROM on your PC), and the D-pad controls then work
+  with the clean dump too; the QoL changes come with the QoL ROM only. (`-Variant clean` still builds the retail
+  game's code exactly, without the D-pad controls.)
+- **Analog stick**: in place of the D-pad, like the 3DS's circle pad (the phone's on-screen stick, or a gamepad's left
+  stick): Link walks the way it is pushed, slowly near the middle and running at the rim. For now it drives the D-pad
+  patch's movement, so it needs a build made from a patched ROM: the default, which needs the patch folder when you
+  build (below). That build then plays your clean dump as well, with the D-pad and the stick. A build of the clean
+  game (`-Variant clean`) has touch controls only for now.
+  **In progress:** an analog stick for the stock game with no patch at all, the way Phantom Hourglass's works (a
+  stylus held near Link, from the game's own touch controls).
 - **Android**: touch is the stylus; an on-screen D-pad, optional A B X Y, L R, Start/Select; Mic, Lid, Top-screen and
   Rotate buttons; portrait mode with both screens like a DS held open; gamepads.
 - **The microphone** (the pan flute, the whirlwind) is a key or a button.
@@ -85,7 +94,7 @@ same engine, program and Android app, set up for Spirit Tracks.
   | D-pad | `dpad` | `dpadonly\loz_st_dpad_0.9c-ua.bps` | 94,096,060 bytes, CRC-32 `a966458d` |
   | Clean | `clean` | (your dump as it is) | 134,217,728 bytes, CRC-32 `38392357` |
 
-- Windows 10 or 11 (64-bit), about 10 GB of disk for the tools and a build (each version is a build of its own). An
+- Windows 10 or 11 (64-bit), about 10 GB of disk for the tools and a build. An
   OpenGL 3.3 graphics card for the GPU renderer (the software renderer needs nothing special).
 - For the phone: an Android 8+ phone (arm64; the GPU renderer needs OpenGL ES 3.2) and a USB cable.
 
@@ -150,7 +159,7 @@ workspace and the tools folder.
 | Input | Does |
 |---|---|
 | Mouse (left button) | the stylus, on the touch screen |
-| Arrows, or a gamepad's D-pad or left stick | D-pad |
+| Arrows, or a gamepad's D-pad or left stick | D-pad (the menu can make the left stick an analog stick for Link) |
 | X, Z, S, A | A, B, X, Y (a gamepad by position: A is the right face button) |
 | Q, W / Enter, Right Shift | L, R / Start, Select |
 | **M** (hold), or the right stick's click | blow into the microphone |

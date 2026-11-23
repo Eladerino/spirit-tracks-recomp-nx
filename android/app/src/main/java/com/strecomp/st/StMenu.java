@@ -222,7 +222,8 @@ final class StMenu {
             pad.setWide(mode);
             refresh();
         }, new boolean[] {true, wideAvailable, wideAvailable});
-        // (No "Analog stick" here yet: it needs Link's touch state in Spirit Tracks, not found yet; frontend/src/st_stick.cpp.)
+        toggle(list, "Analog stick", "In place of the D-pad, like the 3DS's circle pad: Link walks the way you push it, "
+                + "running at the rim. A controller's left stick does the same.", pad.stickMode(), pad::setStickMode);
         row(list, "Move and resize controls", () -> {
             close();
             pad.startEditing();

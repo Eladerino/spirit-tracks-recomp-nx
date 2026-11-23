@@ -2,7 +2,8 @@
 # Needs a PC build of the same variant first (2-BUILD.ps1): the game's C (st-recomp\build\<preset>\recomp_generated)
 # and SDL's source come from it. Uses the Android toolchain in the tools folder (st-common.ps1's $ToolsCache,
 # ST_TOOLS_CACHE: Java 17, the Android SDK with NDK 28.2, Gradle's cache, an optional signing key), and the PC's
-# CMake 3.28+ and Ninja. The APK takes only the ROM it was built from (its SHA-1 is built in).
+# CMake 3.28+ and Ninja. The APK takes the clean dump and both patched ROMs (one recompiled game, known_roms.cpp); the
+# SHA-1 of the one it was built from is built in for reference.
 # The APK lands in apks\SpiritTracks-<variant>-<time>.apk. The first build takes a while (the whole game for ARM64).
 #   powershell -NoProfile -ExecutionPolicy Bypass -File 5-BUILD-ANDROID.ps1 [-DryRun] [-Variant qol|dpad|clean]
 [CmdletBinding()]
@@ -18,11 +19,11 @@ if (Clear-IfMoved (Join-Path $AndroidDir 'app\.cxx')) {
 }
 $sdlSrc = Join-Path $BuildDir '_deps\sdl3-src'
 if (-not (Test-Path $sdlSrc)) { $sdlSrc = Join-Path $Repo 'build\release\_deps\sdl3-src' }   # (shared by the variants)
-# The ROM the C was made from: the APK accepts only that one.
+# The ROM the C was made from (the APK also takes the other two).
 $rom = Find-Rom
 $romSha1 = if (Test-Path -LiteralPath $rom) { (Get-FileHash -Algorithm SHA1 -LiteralPath $rom).Hash.ToLower() } else { '' }
 if (-not $romSha1 -and -not $DryRun) { Fail "cannot read the ROM $rom" }
-Step "the APK will take the ROM with SHA-1 $romSha1 ($($V.Label))"
+Step "the APK is built from the ROM with SHA-1 $romSha1 ($($V.Label)); it plays the clean and patched ROMs alike"
 foreach ($p in @((Join-Path $generated 'func_table.c'), (Join-Path $sdlSrc 'android-project\app\src\main\java\org\libsdl\app\SDLActivity.java'))) {
     if (-not (Test-Path $p)) {
         if ($DryRun) { Step "not there yet (2-BUILD.ps1 makes it): $p" } else { Fail "missing ${p}: run 2-BUILD.ps1 first" }

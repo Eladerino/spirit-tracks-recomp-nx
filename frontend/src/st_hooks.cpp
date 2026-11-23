@@ -3,10 +3,13 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "ntr/nitro.h"
 #include "ntr/recomp.h"
+#include "st_stick.hpp"
 
 namespace {
 // BKIE (USA). The decomp (zeldaret/st) leaves the NitroSDK ones unnamed (OS_func_00nn); each was matched to Phantom
@@ -34,6 +37,27 @@ extern "C" void st_perspective_aspect(NtrCpu* c) {
         c->r[2] = aspect;
         ffcc_wide_scene = 8;
     }
+}
+
+// Main 0x020249EC: G3_LoadMtx44 (r0 = the matrix), `before`. Unlike Phantom Hourglass, Spirit Tracks builds its camera's
+// projection (MTX_PerspectiveW, above) only when the field of view changes and then loads the stored matrix every
+// frame. So the hook above alone widened a scene for 8 frames only (ffcc_wide_scene counts down), never a scene
+// continued from a save state or a widescreen change (its matrix was built at 4:3), and never went back to 4:3. Here a
+// perspective matrix (_33 = 0, _23 < 0, nothing off the diagonal in the first two rows) whose aspect (_11 / _00) is one
+// of ours (4:3 to 21:9) gets the aspect chosen now, in the game's own copy (so it holds until the game rebuilds it),
+// and a wide one keeps the scene marked wide.
+extern "C" void st_load_mtx44(NtrCpu* c) {
+    const uint32_t m = c->r[0];
+    if (ntr_rd32(c, m + 0x3C) != 0) return;                                  // _33: not a perspective projection
+    if (int32_t(ntr_rd32(c, m + 0x2C)) >= 0) return;                         // _23
+    const int32_t m00 = int32_t(ntr_rd32(c, m + 0x00)), m11 = int32_t(ntr_rd32(c, m + 0x14));
+    if (m00 <= 0 || m11 <= 0) return;
+    if (ntr_rd32(c, m + 0x04) | ntr_rd32(c, m + 0x08) | ntr_rd32(c, m + 0x10) | ntr_rd32(c, m + 0x18)) return;
+    const int64_t now = int64_t(m11) * 4096 / m00;                           // the matrix's aspect, 4.12
+    if (now < 0x1500 || now > 0x2800) return;                                // (not one of ours: leave it)
+    const uint32_t want = ffcc_wide_block == 0 ? g_aspect.load(std::memory_order_relaxed) : 0x1555u;
+    if (std::llabs(now - int64_t(want)) > 8) ntr_wr32(c, m + 0x00, uint32_t(int64_t(m11) * 4096 / int64_t(want)));
+    if (want != 0x1555u) ffcc_wide_scene = 8;
 }
 
 // ITCM 0x01FFBD70: OS_IrqHandler.
@@ -65,8 +89,10 @@ void* find_hook(const char* name) {
     } kHooks[] = {
         {"st_os_irq_handler", reinterpret_cast<void*>(&st_os_irq_handler)},
         {"st_perspective_aspect", reinterpret_cast<void*>(&st_perspective_aspect)},
+        {"st_load_mtx44", reinterpret_cast<void*>(&st_load_mtx44)},
         {"st_dsprot_detect", reinterpret_cast<void*>(&st_dsprot_detect)},
         {"st_dsprot_detect_not", reinterpret_cast<void*>(&st_dsprot_detect_not)},
+        {"st_stick_move", reinterpret_cast<void*>(&st_stick_move)},
         {"ntr_nitro_save_context", reinterpret_cast<void*>(&ntr_nitro_save_context)},
         {"ntr_nitro_load_context", reinterpret_cast<void*>(&ntr_nitro_load_context)},
         {"ntr_nitro_init_context", reinterpret_cast<void*>(&ntr_nitro_init_context)},

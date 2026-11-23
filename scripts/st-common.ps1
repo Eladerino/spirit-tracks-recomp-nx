@@ -32,6 +32,8 @@ $Variants = @{
 if (-not $Variants.ContainsKey($Variant)) { Write-Host "unknown variant '$Variant' (qol, dpad or clean)" -ForegroundColor Red; exit 1 }
 $V = $Variants[$Variant]
 $CleanSha1 = '1f0921b5e99db9d92d24710f1b004e4f3c997b73'   # Legend of Zelda, The - Spirit Tracks (USA, Australia) (En,Fr,Es).nds
+# Every ROM a build plays (common/src/known_roms.cpp): the three share one recompiled game, so the app takes any of them.
+$PlayableSha1 = @($CleanSha1, '6a63d88702c34da626e273dfca4931d52ac4551b', '6896c1db2b3a725cb991f711a875fc2228b7620e')
 # USA Rev 1 is the same size but different code: zeldaret/st and the D-pad patches only cover Rev 0, so it is refused.
 $Rev1Sha1 = '9953bce6ce32c35d084300c32b555b40aa013047'    # Legend of Zelda, The - Spirit Tracks (USA) (En,Fr,Es) (Rev 1).nds
 $CleanSize = 134217728

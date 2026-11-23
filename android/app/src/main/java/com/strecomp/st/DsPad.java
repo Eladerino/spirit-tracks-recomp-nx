@@ -133,7 +133,7 @@ public final class DsPad extends View {
         edge.setStyle(Paint.Style.STROKE);
         setHapticFeedbackEnabled(true);
         for (int i = 0; i < toolRects.length; i++) toolRects[i] = new RectF();
-        stickMode = false;  // (the analog stick is off in Spirit Tracks for now: frontend/src/st_stick.cpp)
+        stickMode = prefs.getBoolean("stick", false);
     }
 
     boolean stickMode() { return stickMode; }

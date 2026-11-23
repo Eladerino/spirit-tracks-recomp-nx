@@ -1,34 +1,32 @@
-// An analog stick for Spirit Tracks, like the 3DS's circle pad: the game moves Link toward a stylus held near
-// him, faster the farther it is, so the stick holds a stylus at Link plus the stick's direction (a short way for a
-// walk, farther to run).
+// An analog stick for Spirit Tracks, like the 3DS's circle pad: Link walks the way it is pushed, slowly near the
+// middle and running at the rim.
 //
-// Where Link is on the screen comes from the game itself: while the stylus is down, its PlayerControl
-// (gPlayerControl, zeldaret/ph include/Player/PlayerControl.hpp) keeps the touch point (mTouchX/Y), its distance in
-// pixels from Link (mTouchDist) and the angle between them (mTouchAngle), so Link is that distance from the touch,
-// along that angle. The stick only acts while the game lets the stylus move Link (mUnk_7c, false in cutscenes,
-// menus and talk); otherwise it does nothing.
+// It drives the movement of the D-pad patch (d0k3 / Greiga Master, v0.9c), which every build made from a patched ROM
+// carries, with any of the three ROMs (known_roms.cpp). When no stylus is down, the game's touch movement
+// (UnkStruct_027e0ce0_40_Base_14::func_ov017_020be44c, zeldaret/st) ends in the patch's routine at 0x02044B28: for
+// a held D-pad direction it writes the distance of an imagined stylus from Link (mUnk_3C, fx32 pixels: 96 for Y's
+// walk, 1520 to run) and its direction (mUnk_44 and mUnk_46: the camera's yaw plus 0 down, 0x4000 right, 0x8000
+// up, 0xC000 left), else stops Link. The hook (st_stick_move, hooks.txt) writes the same from the stick: any
+// direction, and a distance that grows with how far the stick is pushed. The stick also holds the D-pad direction it
+// points to (main.cpp, stick_dpad): the patch's 0x02044CB8 puts Link in his moving state only for a held D-pad, and
+// without it he barely moves. So it acts exactly where the patch's D-pad does (not in cutscenes, menus or talk), and
+// a build from the clean ROM has no analog stick (nothing at 0x02044B28: the stick is then an 8-way D-pad).
 #pragma once
 
 #include <cstdint>
 
-namespace ntr {
-class Runtime;
-}
+#include "ntr/recomp.h"
 
 namespace st {
 
-class Stick {
-public:
-    // Stick position x, y in -1..1 (y down). Returns true and the touch point (DS pixels) to hold this frame, or false
-    // to leave the touch screen alone (the stick at rest, or the game not taking stylus moves now).
-    bool touch_for(const ntr::Runtime& rt, float x, float y, int& tx, int& ty);
+// The stick: x, y in -1..1 (y down), 0, 0 at rest or off. Read by the hook on the game's thread.
+void set_stick(float x, float y);
 
-private:
-    bool holding_ = false;          // last frame's touch was the stick's
-    float link_x_ = 128, link_y_ = 96;  // where Link is on the touch screen (DS pixels), as last worked out
-    int last_tx_ = 0, last_ty_ = 0;
-    int sense_ = 0;  // which way the game's angle points: 0 not known yet, 1 Link to touch, 2 touch to Link
-    int last_pick_ = 0, votes_ = 0;
-};
+// The D-pad direction (ntr::Key* bits, 8 ways) the stick points to, 0 inside its dead zone.
+uint32_t stick_dpad(float x, float y);
 
 }  // namespace st
+
+// Main 0x02044B28 (the D-pad patch's movement), `instead`: 1 when the stick moved Link this frame, 0 to let the
+// patch's own code run (the stick at rest, or Select held, which the patch keeps for itself).
+extern "C" int st_stick_move(NtrCpu* c);

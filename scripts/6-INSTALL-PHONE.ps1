@@ -1,6 +1,7 @@
 # 6-INSTALL-PHONE.ps1 -- installs the Android app on the phone (USB or wireless debugging) and gives it your game.
 #   - installs apks\SpiritTracks-<variant>-latest.apk (keeps the app's data: an update, not a fresh install)
-#   - copies the variant's ROM into the app, unless the app has that very ROM (SHA-1) already
+#   - copies the variant's ROM into the app, unless the app has a Spirit Tracks ROM already (clean, D-pad or D-pad + QoL:
+#     any of them plays with any build, so one you chose on the phone is kept)
 #   - copies a save into the app ONLY if the app has none yet: the PC game folder's (SpiritTracks\data\saves),
 #     else your melonDS .ml1.sav. A save already on the phone is never replaced.
 #   - opens the app
@@ -51,11 +52,12 @@ function Push-Into-App([string] $local, [string] $dest) {
 }
 
 $rom = Find-Rom
-# The app's ROM must be the one its game was built from: replaced when it differs (another variant). Saves are untouched.
+# Any supported ROM plays with any build (known_roms.cpp): the app's own is kept, else this variant's is copied in.
 $romSha1 = (Get-FileHash -Algorithm SHA1 -LiteralPath $rom -ErrorAction SilentlyContinue).Hash
 $onPhone = if ($DryRun) { '' } else { "$(In-App 'sha1sum files/rom/bkie.nds')" }
-if (-not $DryRun -and $romSha1 -and $onPhone -match $romSha1.ToLower()) {
-    Step 'the app has this ROM already'
+$kept = @($PlayableSha1 | Where-Object { $onPhone -match $_ })
+if (-not $DryRun -and $romSha1 -and $kept.Count -gt 0) {
+    Step "the app has a Spirit Tracks ROM already ($($kept[0])): kept"
 } else {
     Push-Into-App $rom 'files/rom/bkie.nds'
     Step "ROM copied into the app ($($V.Label))"
