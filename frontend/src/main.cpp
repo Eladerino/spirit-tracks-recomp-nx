@@ -233,7 +233,8 @@ ntr::VideoSettings video_for(const Settings& s) {
 #endif
     v.wide_extra = s.gpu && s.wide ? (s.wide_mode == 2 ? kUltraWideExtra : kWideExtra) : 0;
     v.hud_edges = v.wide_extra > 0;  // the HUD at the wide picture's edges (touches on it are mapped back: to_ds)
-    v.hud_sides = false;             // (Phantom Hourglass's own HUD placement)
+    v.hud_sides = v.hud_edges;       // (as Phantom Hourglass: a HUD piece moved out keeps its place under a dialogue box,
+                                     // the bands' clusters go to their side, a bar sliding out stays with the Menu button)
     v.texture_smoothing = s.textures == 1 ? ntr::TextureSmoothing::Smooth
                           : s.textures == 2 ? ntr::TextureSmoothing::Sharp : ntr::TextureSmoothing::Off;
     v.better_polygons = (s.fixes & 1) != 0;  // (seams between polygons in upscaled 3D)
