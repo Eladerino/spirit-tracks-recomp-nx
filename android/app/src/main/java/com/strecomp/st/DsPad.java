@@ -39,7 +39,7 @@ public final class DsPad extends View {
     private static final int KIND_BUTTON = 0, KIND_DPAD = 1, KIND_SHOULDER = 2, KIND_TOOL = 3, KIND_MAP = 4;
     private static final int LEFT = -1, RIGHT = 1;
     private static final int TOOL_MENU = 1, TOOL_MIC = 2, TOOL_LID = 3, TOOL_TOP = 4, TOOL_ROTATE = 5,
-            TOOL_MIC_SAMPLE = 6;
+            TOOL_MIC_SAMPLE = 6, TOOL_MAP = 7;
     private static final float HIT_GROW = 1.25f;  // a thumb lands off-centre: the hit area is a bit larger than the drawing
     static final String PREFS = "st_pad";
 
@@ -79,6 +79,7 @@ public final class DsPad extends View {
             {"top", "Top screen button", "1"},
             {"rotate", "Rotate button (portrait, both screens)", "1"},
             {"map", "Minimap (the other screen; tap it to swap)", "1"},
+            {"mapbutton", "Minimap button (shows / hides it)", "1"},
     };
     private static final float[] OPACITY = {0.85f, 0.6f, 0.4f, 0.25f};
     private static final float[] SIZE = {0.85f, 1.0f, 1.2f};
@@ -119,6 +120,8 @@ public final class DsPad extends View {
         controls.add(new Control(KIND_TOOL, 0, TOOL_MENU, "menu", "≡", null, LEFT, 0.07f, 0.08f, 0.05f));
         controls.add(new Control(KIND_TOOL, 0, TOOL_TOP, "top", "TOP", "top", LEFT, 0.19f, 0.08f, 0.05f));
         controls.add(new Control(KIND_TOOL, 0, TOOL_ROTATE, "rotate", "⟳", "rotate", LEFT, 0.31f, 0.08f, 0.05f));
+        // Under the menu button (landscape): shows or hides the minimap, the same switch as the menu's "Minimap".
+        controls.add(new Control(KIND_TOOL, 0, TOOL_MAP, "mapbutton", "MAP", "mapbutton", LEFT, 0.07f, 0.19f, 0.05f));
         // Right bar: A B X Y in the DS's own places, R, Start, and the Mic and Lid buttons above.
         controls.add(new Control(KIND_BUTTON, StInput.A, 0, "a", "A", "face", RIGHT, 0.10f, 0.62f, 0.065f));
         controls.add(new Control(KIND_BUTTON, StInput.B, 0, "b", "B", "face", RIGHT, 0.24f, 0.76f, 0.065f));
@@ -432,6 +435,7 @@ public final class DsPad extends View {
 
     private boolean visible(Control c) {
         if (c.kind == KIND_MAP) return mapShown(c) && !mapHidden;
+        if (c.tool == TOOL_MAP && portrait()) return false;  // (portrait shows both screens: no minimap)
         return groupOn(c.group) && !c.hidden && (!hiddenForController || c.kind == KIND_TOOL);
     }
 
@@ -545,6 +549,7 @@ public final class DsPad extends View {
             case "menu": return "menu button (always shown)";
             case "rotate": return "Rotate button";
             case "map": return "minimap";
+            case "mapbutton": return "Minimap button";
             default: return c.label + " button";
         }
     }
@@ -555,6 +560,7 @@ public final class DsPad extends View {
         if (c.tool == TOOL_LID) return lidClosed;
         if (c.tool == TOOL_TOP) return topShown;
         if (c.tool == TOOL_ROTATE) return portrait();
+        if (c.tool == TOOL_MAP) return groupOn("map");  // (lit while the minimap is shown)
         for (int i = 0; i < fingers.size(); i++)
             if (fingers.valueAt(i) == c) return true;
         return false;
@@ -826,6 +832,7 @@ public final class DsPad extends View {
                 case TOOL_ROTATE:
                     if (activity instanceof GameActivity) ((GameActivity) activity).setPortrait(!portrait());
                     return;
+                case TOOL_MAP: setGroup("map", !groupOn("map")); return;
                 default: return;
             }
         }
