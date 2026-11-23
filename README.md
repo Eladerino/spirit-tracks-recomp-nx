@@ -26,6 +26,8 @@ same engine, program and Android app, set up for Spirit Tracks.
   D-pad + QoL ROM by default (the patches are applied to your own ROM on your PC), and the D-pad controls then work
   with the clean dump too; the QoL changes come with the QoL ROM only. (`-Variant clean` still builds the retail
   game's code exactly, without the D-pad controls.)
+- **HD text** (ported from Phantom Hourglass, by chouette-cc): optional vector dialogue text drawn at the screen's own
+  resolution with the bundled Inter Bold font, keeping the game's layout, colours and special symbols (PC and Android).
 - **Analog stick**: in place of the D-pad, like the 3DS's circle pad (the phone's on-screen stick, or a gamepad's left
   stick): Link walks the way it is pushed, slowly near the middle and running at the rim. For now it drives the D-pad
   patch's movement, so it needs a build made from a patched ROM: the default, which needs the patch folder when you

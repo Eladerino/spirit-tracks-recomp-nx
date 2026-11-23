@@ -1,5 +1,6 @@
 // Spirit Tracks's hooks (frontend/config/bkie/hooks.txt): the NitroSDK routines the runtime replaces, and DS Protect.
 #include "st_hooks.hpp"
+#include "st_text.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -96,6 +97,14 @@ void* find_hook(const char* name) {
         {"ntr_nitro_save_context", reinterpret_cast<void*>(&ntr_nitro_save_context)},
         {"ntr_nitro_load_context", reinterpret_cast<void*>(&ntr_nitro_load_context)},
         {"ntr_nitro_init_context", reinterpret_cast<void*>(&ntr_nitro_init_context)},
+        {"st_text_obj_init", reinterpret_cast<void*>(&st_text_obj_init)},
+        {"st_text_obj_deinit", reinterpret_cast<void*>(&st_text_obj_deinit)},
+        {"st_text_clear", reinterpret_cast<void*>(&st_text_clear)},
+        {"st_text_obj_clear", reinterpret_cast<void*>(&st_text_obj_clear)},
+        {"st_text_clear_area", reinterpret_cast<void*>(&st_text_clear_area)},
+        {"st_text_draw_char", reinterpret_cast<void*>(&st_text_draw_char)},
+        {"st_text_obj_draw", reinterpret_cast<void*>(&st_text_obj_draw)},
+        {"st_text_oam_flush", reinterpret_cast<void*>(&st_text_oam_flush)},
     };
     for (const auto& h : kHooks)
         if (std::strcmp(h.name, name) == 0) return h.fn;

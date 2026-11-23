@@ -34,6 +34,10 @@ extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeSetSmooth(J
     st::pad::smooth.store(on != JNI_FALSE ? 1 : 0);
 }
 
+extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeSetHdText(JNIEnv*, jclass, jboolean on) {
+    st::pad::hd_text.store(on != JNI_FALSE ? 1 : 0);
+}
+
 extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeSetFps(JNIEnv*, jclass, jboolean on) {
     st::pad::fps.store(on != JNI_FALSE);
 }

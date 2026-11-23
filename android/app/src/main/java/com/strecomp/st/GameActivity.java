@@ -56,6 +56,7 @@ public class GameActivity extends SDLActivity {
         args.add(textures[Math.max(0, Math.min(2, prefs.getInt("textures", 0)))]);
         args.add("--fixes");
         args.add("0");
+        if (prefs.getBoolean("hd_text", false)) args.add("--hd-text");
         return args.toArray(new String[0]);
     }
 
@@ -138,6 +139,7 @@ public class GameActivity extends SDLActivity {
         pad.setMenu(menu);
         // The display choices kept from last time.
         StInput.nativeSetSmooth(prefs.getBoolean("smooth", false));
+        StInput.nativeSetHdText(prefs.getBoolean("hd_text", false));
         StInput.nativeSetFps(false);  // (the phone's counter is the FpsBadge, not drawn in the picture)
         setFpsShown(prefs.getBoolean("fps", false));
         StInput.nativeSetStretch(prefs.getBoolean("stretch", false));
