@@ -56,7 +56,61 @@ Tested devices, measurements and known issues: [TESTING.md](TESTING.md).
 - Windows 10/11 64-bit, about 10 GB of disk, and an OpenGL 3.3 GPU for the GPU renderers.
 - For Android: an Android 8+ arm64 phone (OpenGL ES 3.2 for the GPU renderers) and a USB cable.
 
+## Quick start (new to this?)
+
+You build the game on a Windows PC from your own copy of the game. It takes about an hour the first time, mostly
+waiting. Step by step:
+
+1. **Install Git** (to download this project): open the Start menu, type `PowerShell`, open it, and paste this line
+   (right-click pastes), then press Enter:
+   ```powershell
+   winget install --id Git.Git -e
+   ```
+   Close PowerShell and open it again afterwards.
+2. **Make a folder for everything**, for example `C:\Games\st-workspace`, and inside it a folder named `roms`. Put
+   your Spirit Tracks dump (USA) in `roms` (any file name).
+3. **For the D-pad controls and the analog stick** (recommended): put d0k3's patch folder `loz_st_dpad_qol-v0.9c` in
+   `roms\patches\`. Without it you get the original game, touch controls only.
+4. **Download the project** into that folder. In PowerShell, paste these two lines (change the path if you used another
+   folder):
+   ```powershell
+   cd C:\Games\st-workspace
+   git clone --recurse-submodules https://github.com/dguillot-gh/spirit-tracks-recomp.git st-recomp
+   ```
+   Don't use GitHub's green "Download ZIP" button: the ZIP leaves out melonDS, and the build then fails.
+   The folder should now look like this:
+   ```
+   C:\Games\st-workspace\
+     st-recomp\                              (the project)
+     roms\your-dump.nds                      (your game)
+     roms\patches\loz_st_dpad_qol-v0.9c\     (the patch, if you have it)
+   ```
+5. **Build it** (installs the build tools the first time; Windows asks for admin once):
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File st-recomp\scripts\RUN-ALL.ps1
+   ```
+   Without the patch, add `-Variant clean` at the end. When it says it's done, open
+   `C:\Games\st-workspace\games\SpiritTracks\` (`SpiritTracks-Clean\` without the patch) and double-click
+   `SpiritTracks.exe` (`PLAY.cmd` does the same). That folder is the whole game: move it anywhere you like.
+6. **For an Android phone:**
+   - Turn on USB debugging once: Settings → About phone → tap **Build number** seven times; then Settings → System →
+     Developer options → **USB debugging** on.
+   - Plug the phone into the PC with a USB cable and tap **Allow** on the phone when it asks.
+   - In the same PowerShell window (add `-Variant clean` here too if you built without the patch):
+     ```powershell
+     powershell -NoProfile -ExecutionPolicy Bypass -File st-recomp\scripts\RUN-ANDROID.ps1
+     ```
+     It builds the app, installs it and copies your game in. Without a cable, add `-NoPhone`: it only makes the app (in
+     `apks\`); copy that file to the phone, tap it to install, and pick your ROM on the app's start screen.
+
+**If something goes wrong:** the script stops with a `FAIL` line that says what's missing. Every step's full output is
+in the `logs\spirit-tracks\` folder; attach the newest log when you [open an issue](../../issues). Don't attach your ROM
+or the patch.
+
 ## Building
+
+The short version, for people who already use Git and PowerShell.
+
 
 Put the repository, your ROM and the patch side by side:
 
