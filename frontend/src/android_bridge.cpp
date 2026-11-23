@@ -30,6 +30,13 @@ extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeShowScreen(
     st::pad::show.store(int(layout));
 }
 
+extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeSetMap(JNIEnv*, jclass, jint x, jint y, jint w, jint h) {
+    st::pad::map_x.store(int(x));
+    st::pad::map_y.store(int(y));
+    st::pad::map_h.store(int(h));
+    st::pad::map_w.store(int(w));
+}
+
 extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeSetSmooth(JNIEnv*, jclass, jboolean on) {
     st::pad::smooth.store(on != JNI_FALSE ? 1 : 0);
 }

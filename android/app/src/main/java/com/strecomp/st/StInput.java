@@ -25,6 +25,9 @@ public final class StInput {
     /** Which screen(s) to show: SCREEN_TOUCH, SCREEN_TOP or SCREEN_BOTH. */
     public static native void nativeShowScreen(int screen);
 
+    /** The minimap's rectangle in the window, in pixels (w 0: no minimap): the screen not shown is drawn there. */
+    public static native void nativeSetMap(int x, int y, int w, int h);
+
     /** The picture filter: smooth (on) or sharp pixels (off). */
     public static native void nativeSetSmooth(boolean on);
 

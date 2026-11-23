@@ -30,5 +30,8 @@ extern std::atomic<bool> compute_failed;   // the compute renderer cannot run on
 extern std::atomic<int> fixes;             // the 3D fixes asked for (bits: 1 fewer seams, 2 stable textures); -1: no change
 extern std::atomic<int> wide_mode;         // widescreen asked for (0 off, 1 16:9, 2 21:9); -1: no change
 extern std::atomic<int> hd_text;           // HD vector dialogue text (0 off, 1 on); -1: no change
+// The minimap (Android, landscape): the screen not shown, drawn small in this rectangle of the window (pixels; w 0: off).
+// DsPad.java places it (the bottom-left corner by default) and swaps the screens when it is tapped.
+extern std::atomic<int> map_x, map_y, map_w, map_h;
 
 }  // namespace st::pad

@@ -87,6 +87,7 @@ std::atomic<bool> compute_failed{false};
 std::atomic<bool> resume_done{false};
 std::atomic<int> wide_mode{-1};
 std::atomic<int> hd_text{-1};
+std::atomic<int> map_x{0}, map_y{0}, map_w{0}, map_h{0};
 }  // namespace st::pad
 
 namespace {
@@ -678,6 +679,20 @@ private:
             const bool wide_bot = extra > 0 && frame.wide_layer == 1;
             gl_->draw_hd_text(1, v.bottom, wide_bot ? extra : 0, wide_bot ? frame_hud.data() : nullptr,
                               wide_bot ? frame_hud_count : 0);
+        }
+        // The minimap: the screen not shown, small, where the phone's pad put it (st::pad::map_*), like a game's
+        // corner map. The same picture as that screen would show, kept to its own shape inside the rectangle.
+        if (v.top_shown != v.bottom_shown && st::pad::map_w.load() > 0 && st::pad::map_h.load() > 0) {
+            const int layer = v.top_shown ? 1 : 0;
+            const int layer_extra = layer == frame.wide_layer ? extra : 0;
+            const float aspect = (256.0f + 2.0f * float(layer_extra)) / 192.0f;
+            const float bx = float(st::pad::map_x.load()), by = float(st::pad::map_y.load());
+            const float bw = float(st::pad::map_w.load()), bh = float(st::pad::map_h.load());
+            st::Rect r{bx, by, bw, bh};
+            if (bw / bh > aspect) r.w = bh * aspect, r.x = bx;  // (anchored to the corner it sits in: left and bottom)
+            else r.h = bw / aspect, r.y = by + bh - r.h;
+            gl_->screen(frame, layer, r, view.smooth, extra > 0);
+            gl_->draw_hd_text(layer, r, layer_extra, layer_extra ? frame_hud.data() : nullptr, layer_extra ? frame_hud_count : 0);
         }
         // Frames per second: the game's frames shown, counted over a second.
         if (count_game_frame) fps_frames_++;
