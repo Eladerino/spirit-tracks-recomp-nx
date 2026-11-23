@@ -388,6 +388,8 @@ extern "C" void st_text_obj_draw(NtrCpu* c) {
     if (oy >= 192) oy -= 256;
     const int32_t screen_x = int32_t(int16_t(ntr_rd16(c, pos))) + ox;
     const int32_t screen_y = int32_t(int16_t(ntr_rd16(c, pos + 2u))) + oy;
+    // The canvas's size in characters (NNSG2dCharCanvas: areaWidth, areaHeight after charBase).
+    const int32_t box_w = int32_t(ntr_rd32(c, this_obj + 4u)) * 8, box_h = int32_t(ntr_rd32(c, this_obj + 8u)) * 8;
     const int engine = ntr_rd16(c, obj + st::kTextEngine) != 0 ? 1 : 0;
     // The 4-bit OBJ palette from OBJ 0's attr2 (bits 12..15).
     const uint8_t pal_idx = static_cast<uint8_t>((ntr_rd16(c, obj + st::kTextObjAttr2) >> 12) & 0xFu);
@@ -413,6 +415,10 @@ extern "C" void st_text_obj_draw(NtrCpu* c) {
         e.glyph.baseline = float(g.baseline);
         e.glyph.slot_w = float(g.glyph_w);
         e.glyph.char_w = float(g.char_w);
+        e.glyph.box_x0 = float(screen_x);
+        e.glyph.box_y0 = float(screen_y);
+        e.glyph.box_x1 = float(screen_x + std::clamp(box_w, 0, 512));
+        e.glyph.box_y1 = float(screen_y + std::clamp(box_h, 0, 384));
         e.pal_idx = pal_idx;
         // 2bpp NFTR: v=1..3 maps to palette cl + v - 1; solid fill (v=3) is (cl + 2) & 0xF.
         e.solid_color_idx = static_cast<uint8_t>((g.bpp >= 2 ? (g.color_idx + 2u) : g.color_idx) & 0xFu);

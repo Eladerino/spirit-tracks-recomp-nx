@@ -30,6 +30,10 @@ extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeShowScreen(
     st::pad::show.store(int(layout));
 }
 
+extern "C" JNIEXPORT jboolean JNICALL Java_com_strecomp_st_StInput_nativeMapHidden(JNIEnv*, jclass) {
+    return st::pad::map_hidden.load() ? JNI_TRUE : JNI_FALSE;
+}
+
 extern "C" JNIEXPORT void JNICALL Java_com_strecomp_st_StInput_nativeSetMap(JNIEnv*, jclass, jint x, jint y, jint w, jint h) {
     st::pad::map_x.store(int(x));
     st::pad::map_y.store(int(y));

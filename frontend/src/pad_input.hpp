@@ -33,5 +33,6 @@ extern std::atomic<int> hd_text;           // HD vector dialogue text (0 off, 1 
 // The minimap (Android, landscape): the screen not shown, drawn small in this rectangle of the window (pixels; w 0: off).
 // DsPad.java places it (the bottom-left corner by default) and swaps the screens when it is tapped.
 extern std::atomic<int> map_x, map_y, map_w, map_h;
+extern std::atomic<bool> map_hidden;  // the game shows no HUD now (a cutscene): the minimap is not drawn
 
 }  // namespace st::pad

@@ -354,6 +354,33 @@ public final class DsPad extends View {
 
     private boolean mapShown(Control c) { return !portrait() && !bothShown && groupOn(c.group) && !c.hidden; }
 
+    // The game hides its HUD (cutscenes): the frontend then leaves the minimap out, and so do its frame and its tap.
+    // Asked a few times a second while the minimap is on.
+    private boolean mapHidden;
+    private final Runnable mapPoll = new Runnable() {
+        @Override
+        public void run() {
+            final boolean h = StInput.nativeMapHidden();
+            if (h != mapHidden) {
+                mapHidden = h;
+                invalidate();
+            }
+            postDelayed(this, 250);
+        }
+    };
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        postDelayed(mapPoll, 250);
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        removeCallbacks(mapPoll);
+        super.onDetachedFromWindow();
+    }
+
     private final int[] sentMap = {-1, -1, -1, -1};
 
     // Tells the frontend where to draw the minimap (nothing: width 0).
@@ -394,7 +421,7 @@ public final class DsPad extends View {
     }
 
     private boolean visible(Control c) {
-        if (c.kind == KIND_MAP) return mapShown(c);
+        if (c.kind == KIND_MAP) return mapShown(c) && !mapHidden;
         return groupOn(c.group) && !c.hidden && (!hiddenForController || c.kind == KIND_TOOL);
     }
 

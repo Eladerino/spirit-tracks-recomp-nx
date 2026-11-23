@@ -29,6 +29,9 @@ struct HdGlyph {
     float slot_w = 8.0f;     // DS glyph visual width (DS pixels)
     float char_w = 8.0f;     // DS character advance width (DS pixels)
     uint32_t argb = 0xFFFFFFFFu;
+    // The whole text box on the DS screen (its canvas: x0, y0, x1, y1): its letters follow a widescreen HUD move only
+    // when all of it is inside the moved piece (a choice bubble beside the train lever stays whole).
+    float box_x0 = 0.0f, box_y0 = 0.0f, box_x1 = 0.0f, box_y1 = 0.0f;
 };
 
 void set_hd_text_enabled(bool enabled);

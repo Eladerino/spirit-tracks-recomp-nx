@@ -88,6 +88,7 @@ std::atomic<bool> resume_done{false};
 std::atomic<int> wide_mode{-1};
 std::atomic<int> hd_text{-1};
 std::atomic<int> map_x{0}, map_y{0}, map_w{0}, map_h{0};
+std::atomic<bool> map_hidden{false};
 }  // namespace st::pad
 
 namespace {
@@ -690,7 +691,9 @@ private:
         }
         // The minimap: the screen not shown, small, where the phone's pad put it (st::pad::map_*), like a game's
         // corner map. The same picture as that screen would show, kept to its own shape inside the rectangle.
-        if (v.top_shown != v.bottom_shown && st::pad::map_w.load() > 0 && st::pad::map_h.load() > 0) {
+        // (Hidden while the game shows no HUD for half a second: cutscenes. DsPad hides its frame too.)
+        st::pad::map_hidden.store(frame.hud_absent >= 30);
+        if (v.top_shown != v.bottom_shown && st::pad::map_w.load() > 0 && st::pad::map_h.load() > 0 && frame.hud_absent < 30) {
             const int layer = v.top_shown ? 1 : 0;
             const int layer_extra = layer == frame.wide_layer ? extra : 0;
             const float aspect = (256.0f + 2.0f * float(layer_extra)) / 192.0f;

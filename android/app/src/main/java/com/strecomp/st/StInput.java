@@ -28,6 +28,9 @@ public final class StInput {
     /** The minimap's rectangle in the window, in pixels (w 0: no minimap): the screen not shown is drawn there. */
     public static native void nativeSetMap(int x, int y, int w, int h);
 
+    /** The game shows no HUD now (a cutscene): the minimap is not drawn, nor its frame. */
+    public static native boolean nativeMapHidden();
+
     /** The picture filter: smooth (on) or sharp pixels (off). */
     public static native void nativeSetSmooth(boolean on);
 
