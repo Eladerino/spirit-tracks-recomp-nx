@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <cstring>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -213,6 +214,52 @@ void hd_text_reset() {
     g_pending[1].clear();
     g_visible[0].clear();
     g_visible[1].clear();
+}
+
+namespace {
+constexpr uint32_t kHdStateMagic = 0x31544853u;  // "SHT1"
+}
+
+std::vector<uint8_t> hd_text_save() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    std::vector<uint8_t> out;
+    auto put = [&](const void* p, size_t n) {
+        const auto* b = static_cast<const uint8_t*>(p);
+        out.insert(out.end(), b, b + n);
+    };
+    const uint32_t head[3] = {kHdStateMagic, uint32_t(sizeof(RecordedGlyph)), uint32_t(g_canvases.size())};
+    put(head, sizeof head);
+    for (const auto& [addr, canvas] : g_canvases) {
+        const uint32_t h2[2] = {addr, uint32_t(canvas.glyphs.size())};
+        put(h2, sizeof h2);
+        if (!canvas.glyphs.empty()) put(canvas.glyphs.data(), canvas.glyphs.size() * sizeof(RecordedGlyph));
+    }
+    return out;
+}
+
+bool hd_text_restore(const std::vector<uint8_t>& data) {
+    size_t at = 0;
+    auto get = [&](void* p, size_t n) {
+        if (at + n > data.size()) return false;
+        std::memcpy(p, data.data() + at, n);
+        at += n;
+        return true;
+    };
+    uint32_t head[3];
+    if (!get(head, sizeof head) || head[0] != kHdStateMagic || head[1] != sizeof(RecordedGlyph)) return false;
+    std::unordered_map<uint32_t, ObjCanvas> canvases;
+    for (uint32_t i = 0; i < head[2]; i++) {
+        uint32_t h2[2];
+        if (!get(h2, sizeof h2) || h2[1] > 4096) return false;
+        ObjCanvas& c = canvases[h2[0]];
+        c.glyphs.resize(h2[1]);
+        if (h2[1] && !get(c.glyphs.data(), h2[1] * sizeof(RecordedGlyph))) return false;
+    }
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_canvases = std::move(canvases);
+    g_pending[0].clear();
+    g_pending[1].clear();
+    return true;
 }
 
 void hd_text_draw_list(int layer, std::vector<HdGlyph>& out) {

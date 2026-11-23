@@ -528,7 +528,7 @@ public:
         if (frames_ > kResumeStaleFrames && !resume_cleared_) {
             resume_cleared_ = true;
             std::error_code ec;
-            for (const char* ext : {"state", "png", "txt"}) fs::remove(slot_file(s_.state_dir, kResumeSlot, ext), ec);
+            for (const char* ext : {"state", "png", "txt", "hdtext"}) fs::remove(slot_file(s_.state_dir, kResumeSlot, ext), ec);
             s_.states_version++;
         }
     }
@@ -547,6 +547,8 @@ public:
         if (!write_file_atomic(slot_file(s_.state_dir, slot, "state"), state))
             return s_.say("Could not write slot " + std::to_string(slot));
         if (!thumb_.empty()) st::write_png(slot_file(s_.state_dir, slot, "png").string(), thumb_.data(), kW, kH * 2);
+        // The HD text shown in its boxes (never drawn into the DS's memory: st_text.hpp), beside the state.
+        write_file_atomic(slot_file(s_.state_dir, slot, "hdtext"), st::hd_text_save());
         const std::time_t now = std::time(nullptr);
         char when[32] = "saved";
         if (const std::tm* t = std::localtime(&now)) std::strftime(when, sizeof when, "%m-%d %H:%M", t);
@@ -562,7 +564,11 @@ public:
     void on_state_loaded(bool ok, const std::string& error) override {
         const int slot = load_slot_;
         load_slot_ = 0;
-        if (ok) st::hd_text_reset();
+        if (ok) {
+            st::hd_text_reset();
+            if (!load_hd_text_.empty()) st::hd_text_restore(load_hd_text_);
+        }
+        load_hd_text_.clear();
         if (slot == kResumeSlot) return s_.say(ok ? "Continued from where you left off" : "Could not continue: " + error);
         s_.say(ok ? "Loaded slot " + std::to_string(slot) : "Slot " + std::to_string(slot) + " not loaded: " + error);
     }
@@ -594,6 +600,7 @@ private:
             return s_.say(slot == kResumeSlot ? std::string("Nothing to continue from")
                                               : "Slot " + std::to_string(slot) + " is empty");
         load_slot_ = slot;
+        load_hd_text_ = read_file(slot_file(s_.state_dir, slot, "hdtext"));  // (none for a state from before HD text)
         std::fprintf(stderr, "state: loading slot %d (%zu KB)\n", slot, data.size() / 1024);
         rt_->request_load_state(std::move(data));
     }
@@ -800,6 +807,7 @@ private:
     ntr::Frame last_{};  // (a copy: the runtime's goes when on_frame returns)
     bool have_last_ = false;
     int save_slot_ = 0, load_slot_ = 0;  // a save or load under way
+    std::vector<uint8_t> load_hd_text_;  // the HD text saved beside the state being loaded (st_text.hpp)
     bool continue_ = false, resume_ = false;  // (set_resume)
     bool resume_cleared_ = false;  // the resume state was deleted as older than a cartridge save
     bool resume_pending_ = false;  // the resume state was asked for while another state was being saved

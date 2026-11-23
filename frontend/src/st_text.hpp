@@ -40,6 +40,12 @@ const stbtt_fontinfo* hd_font_info();
 // Clear tracked canvases and visible draw lists (call after loading a save state).
 void hd_text_reset();
 
+// The text recorded in the tracked canvases, for a save state: with HD text on the game never draws it into the DS's
+// memory, so a state alone would bring its boxes back empty. hd_text_restore() puts back what hd_text_save() gave
+// (after hd_text_reset); false if the data is not from this build's format.
+std::vector<uint8_t> hd_text_save();
+bool hd_text_restore(const std::vector<uint8_t>& data);
+
 // Copy the glyphs currently visible on `layer` (0 = top screen, 1 = bottom screen).
 void hd_text_draw_list(int layer, std::vector<HdGlyph>& out);
 
