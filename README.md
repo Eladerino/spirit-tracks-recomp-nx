@@ -1,105 +1,70 @@
 # Spirit Tracks Recomp
 
-A native port of **The Legend of Zelda: Spirit Tracks** (Nintendo DS) to Windows PCs and Android phones, made by
-*static recompilation*: the game's own ARM9 code (the main program and all 114 overlays, about 32,500 functions) is
-translated to C and compiled ahead of time for your machine, instead of being emulated. The rest of the console (the
-ARM7, graphics and sound hardware) comes from the [melonDS](https://github.com/melonDS-emu/melonDS) core.
+A native port of **The Legend of Zelda: Spirit Tracks** (Nintendo DS) to Windows and Android. The game's ARM9 code
+(the main program and all 114 overlays, about 32,500 functions) is statically recompiled to C and compiled ahead of
+time instead of emulated; the rest of the DS comes from [melonDS](https://github.com/melonDS-emu/melonDS). It is the
+sister project of [phantom-hourglass-recomp](https://github.com/dguillot-gh/phantom-hourglass-recomp): the same engine,
+program and Android app, set up for Spirit Tracks.
 
-It is the sister project of [phantom-hourglass-recomp](https://github.com/dguillot-gh/phantom-hourglass-recomp): the
-same engine, program and Android app, set up for Spirit Tracks.
+> **No game data is included.** You build the game from your own dump. Please don't share the builds you make: the
+> game folder and the APK contain the game.
 
-> **This repository contains no game data.** You build the game from your own legally dumped cartridge: the scripts
-> recompile your ROM on your PC, and nothing made from it is ever committed or shared. Please do not share the builds
-> you make (the game folders and the APK contain the game).
+![Spirit Tracks Recomp on an Android phone at 21:9, with HD text and the minimap in the corner](docs/images/phone-21x9-minimap.jpg)
 
-*Screenshots will come after the first build.*
+*On a Moto G Stylus 2025: 21:9 widescreen, HD text, and the minimap of the top screen in the corner.*
 
 ## Features
 
-- **Single-screen play**: the touch screen fills the window or the phone; the top screen is a key or a tap away, or
-  both screens stacked.
-- **Upscaling**: a GPU renderer draws 2D and 3D at 2x-8x on a PC, 2x-6x on a phone (OpenGL ES 3.2), or the DS's exact
-  picture with the software renderer. Sharp or smooth filtering; fit (the DS's shape) or stretched to the screen.
-- **Save states**: 12 slots with a picture of each, on PC and phone. A state never touches the game's own save.
-- **Three versions of the game**, each built on its own: the **D-pad + QoL** patch (the default: walk with the D-pad,
-  L/R blow the pan flute, a faster train), the **D-pad** patch alone, or the **clean** retail game. The patches are
-  applied to your own ROM on your PC.
-- **Android**: touch is the stylus; an on-screen D-pad, optional A B X Y, L R, Start/Select; Mic, Lid, Top-screen and
-  Rotate buttons; portrait mode with both screens like a DS held open; gamepads.
-- **The microphone** (the pan flute, the whirlwind) is a key or a button.
-- An FPS counter, a side menu on both platforms, and the game's own saves kept as `.sav` files.
+**Picture**
+- Software, OpenGL and Compute renderers: 2x-8x on a PC, up to 4x on a phone
+- Widescreen 16:9 and 21:9: the 3D fills the screen, the HUD (hearts, timer, Menu button, the train's lever and horn
+  cord) sits at the picture's edges and still answers touches there
+- HD text: dialogue, choices and labels drawn with a vector font at the screen's own resolution, kept with save states
+  (from Phantom Hourglass Recomp, by chouette-cc)
+- Sharp or smooth filtering; the DS's shape or stretched
 
-## Tested on
+**Play**
+- Your clean USA dump, the D-pad patch or the D-pad + QoL patch: one build plays all three (built from the D-pad + QoL
+  ROM by default, so the D-pad controls work with the clean dump too; the QoL changes come with the QoL ROM)
+- D-pad movement and an analog stick (on-screen or a gamepad's left stick): walk with a light push, run at the rim
+- 12 save-state slots with pictures, plus Continue from where you quit
+- Touch, keyboard and gamepad; microphone and Spirit Flute blow buttons (no real microphone needed)
 
-- **Phones:** two test phones, a high-end one and a 2017 one:
-  - **Google Pixel 8** (Tensor G3, Mali-G715, Android 14+)
-  - **LG V30** (Snapdragon 835, Adreno 540, Android 8, rooted for measuring)
+**Phone**
+- A minimap of the other screen in the bottom-left corner (landscape), like a game's corner map: tap it to swap the
+  screens, hold it to move it, pinch it to resize it, or hide it with the MAP button. It moves above dialogue boxes and
+  hides in cutscenes.
+- Movable on-screen controls, portrait mode with both screens like a DS held open
+- 120 Hz (or 60 Hz) display mode and Android's performance hint, for a steady 60 fps
 
-  Other phones should work (Android 8 or newer, 64-bit ARM), but GPU drivers differ: if the picture looks wrong, the
-  software renderer (1x, in the menu) is the safe fallback.
-- **PC:** Windows 11.
-- **Status:** plays on PC, the Pixel 8 and the LG V30. The GPU renderer shows stray dots on the Pixel 8's Mali GPU
-  (being fixed).
-- **Measured** (2026-11-03, this `main` build on both phones): each renderer set the way the menu does, the game
-  continued from the same spot in gameplay, 20 s to settle, then 30 s of the frames the phone actually showed
-  (Android's SurfaceFlinger: `--latency` on the V30, `--timestats` on the Pixel 8). Every run started the renderer it
-  asked for (checked in the game's log).
-
-  | Renderer | LG V30 fps | V30 1% low | Pixel 8 fps | Pixel 1% low |
-  |---|---:|---:|---:|---:|
-  | Software (1x) | 32.0 | 15 | 61.5 | 40 |
-  | OpenGL 2x | 36.5 | 20 | 61.4 | 30 |
-  | **OpenGL 4x** | **47.3** | 30 | 61.5 | 30 |
-  | Compute 2x | 21.3 | 10 | 61.4 | 30 |
-  | Compute 4x | 18.6 | 8 | 61.5 | 30 |
-
-  The Pixel 8 runs every setting at full speed (~60 fps; it measures slightly over 60 on its 120 Hz display).
-  The phone app caps the resolution at 4x (6x gives 4x; checked in Phantom Hourglass Recomp, same code).
-  1% low = the frame rate of the slowest 1% of frames.
-
-  **Best settings:** **OpenGL 4x** on older phones like the V30; **Compute** (the more exact renderer) on fast phones
-  like the Pixel 8. On the V30, 4x runs faster than 2x: the heavier load makes the phone raise its CPU and GPU clocks
-  (fast cores ~1.9 GHz and the GPU at ~670 MHz at 4x, against ~1.2 GHz and 257 MHz at 2x, measured with the
-  `phoneperf` tool). Earlier the same day `phoneperf` measured 56.5 fps at OpenGL 4x on the V30 with a test build
-  (`feature/opengl`: the same fixes plus measuring code); the gap to the 47 here is not explained yet (a different way
-  of counting frames, and run-to-run clock differences on the V30).
-- **Known issue:** in **Software** mode the bottom of the screen flickers on both phones (seen 2026-11-03 during the
-  measurements above); OpenGL and Compute are not affected. Not yet investigated.
-- **OpenGL on phones** (2026-11-03): OpenGL is a menu choice next to Software and Compute, with the same fixes as
-  Phantom Hourglass Recomp (the DS's "equal depth" test for flicker-free small objects, a rare crash at start, and a
-  restart at the same spot when changing to OpenGL or Compute or the widescreen mode). Scenes with 3D on both screens
-  have not been checked in OpenGL yet.
+Tested devices, measurements and known issues: [TESTING.md](TESTING.md).
 
 ## What you need
 
-- Your own dump of the game: *Legend of Zelda, The - Spirit Tracks (USA, Australia) (En,Fr,Es)*, SHA-1
-  `1f0921b5e99db9d92d24710f1b004e4f3c997b73` (the scripts find it by its SHA-1, whatever its name).
-- For the D-pad versions: d0k3's *DPAD & QoL Hack v0.9c* (the folder `loz_st_dpad_qol-v0.9c` with its BPS files). The
-  scripts patch your dump with it; nothing else is needed. Without it, build the clean game (`-Variant clean`). A ROM
-  you already patched with the same file works too (the scripts recognise it by its size and CRC-32 below), even
-  without the clean dump.
+- Your own dump: *Legend of Zelda, The - Spirit Tracks (USA, Australia) (En,Fr,Es)*, SHA-1
+  `1f0921b5e99db9d92d24710f1b004e4f3c997b73` (found by its SHA-1, whatever its name). USA Rev 1 is not supported.
+- For the D-pad controls and the analog stick: d0k3's *DPAD & QoL Hack v0.9c* (the folder `loz_st_dpad_qol-v0.9c` with
+  its BPS files). The scripts patch your dump with it. Without it you can still build the retail game
+  (`-Variant clean`): touch controls only, no D-pad movement or analog stick.
 
-  | Version | `-Variant` | Made with | Result |
-  |---|---|---|---|
-  | D-pad + QoL (default) | `qol` | `loz_st_dpad_qol-0.9c-ua.bps` | 94,097,260 bytes, CRC-32 `44c7c45b` |
-  | D-pad | `dpad` | `dpadonly\loz_st_dpad_0.9c-ua.bps` | 94,096,060 bytes, CRC-32 `a966458d` |
-  | Clean | `clean` | (your dump as it is) | 134,217,728 bytes, CRC-32 `38392357` |
+  | ROM | SHA-1 |
+  |---|---|
+  | USA (clean) | `1f0921b5e99db9d92d24710f1b004e4f3c997b73` |
+  | USA, D-pad patch v0.9c | `6a63d88702c34da626e273dfca4931d52ac4551b` |
+  | USA, D-pad + QoL patch v0.9c | `6896c1db2b3a725cb991f711a875fc2228b7620e` |
 
-- Windows 10 or 11 (64-bit), about 10 GB of disk for the tools and a build (each version is a build of its own). An
-  OpenGL 3.3 graphics card for the GPU renderer (the software renderer needs nothing special).
-- For the phone: an Android 8+ phone (arm64; the GPU renderer needs OpenGL ES 3.2) and a USB cable.
+- Windows 10/11 64-bit, about 10 GB of disk, and an OpenGL 3.3 GPU for the GPU renderers.
+- For Android: an Android 8+ arm64 phone (OpenGL ES 3.2 for the GPU renderers) and a USB cable.
 
-## Building it
+## Building
 
-Clone the repository into a folder of its own (the *workspace*), put your ROM in the workspace's `roms\` folder (and the patch folder in `roms\patches\`),
-and run the scripts in `st-recomp\scripts`. The workspace can be the same as Phantom Hourglass's: every name is
-different, so the two build side by side.
+Put the repository, your ROM and the patch side by side:
 
 ```
 workspace\
-  st-recomp\                (this repository)
-  roms\your-dump.nds        (any name: the scripts find it by its SHA-1)
-  roms\patches\loz_st_dpad_qol-v0.9c\ (the patch, for the D-pad versions)
+  st-recomp\                           (this repository)
+  roms\your-dump.nds                   (any name)
+  roms\patches\loz_st_dpad_qol-v0.9c\  (the patch)
 ```
 
 ```powershell
@@ -107,97 +72,65 @@ git clone --recurse-submodules <this repository> st-recomp
 powershell -NoProfile -ExecutionPolicy Bypass -File st-recomp\scripts\RUN-ALL.ps1
 ```
 
-`RUN-ALL.ps1` installs the build tools with winget (Git, Python, CMake, Ninja, LLVM, Visual Studio Build Tools; asks for
-admin once), makes the patched ROM, recompiles it and builds the game, makes a ready-to-play `SpiritTracks\` folder in
-the workspace and plays it for a minute by itself as a test. Then double-click `SpiritTracks\PLAY.cmd`.
-`RUN-ALL.ps1 -Variant clean` does the same for the retail game, into `SpiritTracks-Clean\` (and `-Variant dpad` into
-`SpiritTracks-DPad\`).
+This installs the build tools, patches your dump, builds the game and makes a `games\SpiritTracks\` folder; run its
+`PLAY.cmd`. For the phone, run `scripts\RUN-ANDROID.ps1` next: it builds the APK and installs it over USB with your
+ROM. Every script takes `-DryRun` and `-Variant qol|dpad|clean`. Step by step, and what each script changes on your
+PC: [scripts/README.md](scripts/README.md).
 
-For the phone, after that:
+## Controls
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File st-recomp\scripts\RUN-ANDROID.ps1
-```
+**PC:** the mouse is the stylus. Arrows = D-pad, X/Z/S/A = A/B/X/Y, Q/W = L/R, Enter/Right Shift = Start/Select.
+M (hold) = blow into the microphone, C (hold) = close the lid. F1 or Esc opens the menu. F5/F8 save/load a state.
+Tab/F2 switch screens, F3 sharp/smooth, F4 FPS counter, F11 fullscreen, F12 screenshot, \` (hold) fast-forward.
+Gamepads work too (the menu can make the left stick an analog stick).
 
-It gets Java 17 and the Android SDK if you do not have them (asking you to accept Android's SDK licence), builds the
-APK and installs it on the phone over USB debugging, with the ROM it was built from. Every script takes `-DryRun` to
-check everything without installing or building anything, and `-Variant`. The step-by-step guide is
-[scripts/README.md](scripts/README.md).
-
-## What the scripts do to your PC
-
-The scripts are plain text in `scripts\`: read any of them before running it. Add `-DryRun` to any script to see what
-it would do without installing or building anything. Each one writes a log to `logs\spirit-tracks\` in the workspace (the folder
-that holds this repository).
-
-| Script | What it does | What it changes on your PC |
-|---|---|---|
-| `1-INSTALL-TOOLS.ps1` | Checks for the build tools; installs the missing ones with winget (Windows' package manager) | Installs Git, Python 3, CMake, Ninja, LLVM and Visual Studio 2022 Build Tools (C++ and the Windows SDK): ordinary programs, removable in Settings > Apps. Build Tools and the SDK ask for admin once. |
-| `ANDROID-TOOLS.ps1` | Uses the Java 17 and Android SDK you already have, or gets them | Java 17 (Microsoft OpenJDK, winget); Google's Android command-line tools and SDK parts (platform 35, NDK) into the tools folder. Shows Android's licence for you to accept. |
-| `2-BUILD.ps1` | Recompiles your ROM's code to C and compiles the game and the program | Reads your ROM, never changes it. Downloads melonDS and SDL3 from GitHub the first time. Writes only inside `st-recomp\build`. |
-| `3-MAKE-GAME-FOLDER.ps1` | Makes `games\SpiritTracks\` in the workspace: the game, ready to play | Copies the program and your ROM there; never overwrites a save. |
-| `4-TEST.ps1` | Plays the game by itself for about a minute and takes screenshots | Works on copies of your save, in the logs folder. |
-| `5-BUILD-ANDROID.ps1` | Builds the phone app (APK) into `apks\` | Gradle downloads Android libraries from Google and Maven Central the first time. |
-| `6-INSTALL-PHONE.ps1` | Installs the app on your phone over USB | Copies your ROM into the app, and a save only if the phone has none; never replaces a save on the phone. |
-| `RUN-ALL.ps1`, `RUN-ANDROID.ps1` | Run the steps above in order, stopping at the first that fails | Nothing more than the steps they run. |
-
-Nothing is uploaded or sent anywhere. Nothing is left running in the background or set to start with Windows, and
-no system settings are changed beyond what the installers above do themselves. Everything the build makes stays in the
-workspace and the tools folder.
-
-## Playing on a PC
-
-| Input | Does |
-|---|---|
-| Mouse (left button) | the stylus, on the touch screen |
-| Arrows, or a gamepad's D-pad or left stick | D-pad |
-| X, Z, S, A | A, B, X, Y (a gamepad by position: A is the right face button) |
-| Q, W / Enter, Right Shift | L, R / Start, Select |
-| **M** (hold), or the right stick's click | blow into the microphone |
-| **C** (hold) | close the DS's lid |
-| **F1** or Esc | the menu: screen, renderer and resolution, picture, FPS counter, fullscreen, save states, quit |
-| **F5** / **F8** | save a state to the chosen slot / load it |
-| Tab / F2 | the other screen / both screens |
-| F3 / F4 / F11 / F12 | sharp or smooth / FPS counter / fullscreen / screenshot |
-| ` (hold) | fast-forward |
+**Android:** touch is the stylus. The small buttons are the menu (≡), TOP (the top screen), ⟳ (portrait), MAP (the
+minimap), MIC, BLOW and LID. The menu has the renderer, widescreen, HD text, save states, the analog stick and
+"Move and resize controls".
 
 With the D-pad patches the D-pad moves Link, Y + D-pad walks, B slashes, A talks and rolls; with the QoL patch L or R
-also blow the pan flute and speed up the train (the patch's own readme has the full list).
+also blow the Spirit Flute and speed up the train (the patch's own readme has the full list).
 
-## Playing on a phone
+## Testing and reporting issues
 
-Touch the game: it is the stylus. The small buttons are the menu (≡), TOP (the top screen), ⟳ (portrait, both
-screens), MIC (hold to blow) and LID. The menu switches each control on or off, sets their size and opacity, and has
-the renderer, resolution, picture size, FPS counter (drag it anywhere) and the 12 save state slots.
+Known issues and the devices it's been tested on are in [TESTING.md](TESTING.md).
+
+Found a bug? [Open an issue](../../issues) and include:
+
+- **Where:** PC or phone, with the phone model
+- **Settings:** renderer (Software, OpenGL or Compute), resolution, widescreen, HD text on or off
+- **ROM:** clean, D-pad or D-pad + QoL
+- **What happened:** the steps to get there, plus a screenshot or a save state if you can
+- **Logs:** build problems: the log in the workspace's `logs\spirit-tracks\` folder. Game problems on Android:
+  `adb logcat` output (tag `strecomp`).
+
+Please don't attach your ROM or any game files.
 
 ## How it works
 
-`ntr-recomp` reads the ROM, finds every function (boundaries from the zeldaret decompilation's analysis) and writes
-them as C; that C is compiled into a game module (`st_game.dll`, `libst_game.so` on Android) that `ntr-runtime` loads.
-The module records the ROM it was made from and runs only with that one. The runtime runs the recompiled code natively
-and drives melonDS for everything else: timers, DMA, interrupts, the ARM7, the cartridge, the 2D and 3D engines. The
-game's threads run on host fibers; code the game builds at run time runs on melonDS's interpreter. The game's
-anti-piracy checks (DS Protect, encrypted in the ROM) are answered as a genuine cartridge would. Porting notes:
+`ntr-recomp` turns the ROM's functions into C (boundaries from the zeldaret decompilation), which compiles into a game
+module that `ntr-runtime` runs natively, with melonDS providing the rest of the DS hardware. The game's threads run on
+host fibers, and its anti-piracy checks (DS Protect) are answered as a genuine cartridge would. Porting notes:
 [ST-PORT.md](ST-PORT.md).
 
 | Folder | What |
 |---|---|
-| `frontend/` | the program (PC and Android), the menu, save states, Spirit Tracks's hooks, `config/bkie` |
-| `android/` | the Android app: launcher, on-screen pad, menu |
+| `frontend/` | the program (PC and Android), the menu, save states, HD text, Spirit Tracks's hooks, `config/bkie` |
+| `android/` | the Android app: launcher, on-screen pad, minimap, menu |
 | `recompiler/` | `ntr-recomp`: ARM/Thumb decoder, function discovery, C emitter |
 | `runtime/` | `ntr-runtime`: the DS around the recompiled code (melonDS), threads, save states |
 | `common/` | ROM reading, SHA-1, the supported dumps |
-| `third_party/` | melonDS (submodule) and its build glue, the OpenGL ES shader conversion; SDL3 is fetched at build time |
+| `third_party/` | melonDS (submodule) and its build glue (widescreen, HUD), stb_truetype; SDL3 is fetched at build time |
 | `scripts/` | the build scripts |
 | `tools/` | the BPS patcher, the copyright guard, the OpenGL ES shader check, the icon, the function list importer |
 
 ## Credits and licence
 
-The recompiler and runtime come from [FFCCEOT-Recomp](https://github.com/JonathanDC64/FFCCEOT-Recomp) by JonathanDC64,
-used as the engine of this fork; the frontend and the Android app are this project's own. The DS hardware model is
-[melonDS](https://github.com/melonDS-emu/melonDS). Function boundaries come from the
-[zeldaret/st](https://github.com/zeldaret/st) decompilation project. The D-pad and QoL patches are by d0k3 and
-Greiga Master / StraDaMa (not included). Details in [NOTICE.md](NOTICE.md).
+Recompiler and runtime from [FFCCEOT-Recomp](https://github.com/JonathanDC64/FFCCEOT-Recomp) by JonathanDC64; DS
+hardware from [melonDS](https://github.com/melonDS-emu/melonDS); function boundaries from the
+[zeldaret/st](https://github.com/zeldaret/st) decompilation; HD text from
+[chouette-cc](https://github.com/chouette-cc)'s work on Phantom Hourglass Recomp; the Inter font by Rasmus Andersson.
+The D-pad and QoL patches are by d0k3 and Greiga Master / StraDaMa (not included). Details in [NOTICE.md](NOTICE.md).
 
 GPL-3.0 ([LICENSE](LICENSE)). *The Legend of Zelda: Spirit Tracks* is © Nintendo; this project is not affiliated with
 or endorsed by Nintendo.

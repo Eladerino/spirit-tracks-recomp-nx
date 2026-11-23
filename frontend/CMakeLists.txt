@@ -1,6 +1,18 @@
 # Spirit Tracks: the recompiled game (st_game, from the player's ROM) and the program (SpiritTracks).
 set(ST_CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/config/bkie)
 
+# Embedded HD font (Inter Bold, SIL OFL 1.1) for optional vector text rendering.
+set(ST_HD_FONT_SRC ${CMAKE_CURRENT_BINARY_DIR}/hd_font_data.cpp)
+add_custom_command(
+  OUTPUT ${ST_HD_FONT_SRC}
+  COMMAND ${CMAKE_COMMAND}
+          -D INPUT=${CMAKE_CURRENT_SOURCE_DIR}/res/fonts/Inter-Bold.ttf
+          -D OUTPUT=${ST_HD_FONT_SRC}
+          -P ${CMAKE_SOURCE_DIR}/cmake/EmbedFont.cmake
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/res/fonts/Inter-Bold.ttf ${CMAKE_SOURCE_DIR}/cmake/EmbedFont.cmake
+  COMMENT "Embedding HD font (Inter-Bold.ttf)"
+  VERBATIM)
+
 # ---- Android: the game's C comes from a PC build (recomp_generated), compiled here for the phone ----
 if(ANDROID)
   set(ST_GENERATED_DIR "" CACHE PATH "The recomp_generated folder of a PC build (2-BUILD.ps1)")
@@ -16,9 +28,9 @@ if(ANDROID)
   target_link_options(st_game PRIVATE -nostdlib)
 
   # SDL's Android activity loads the program as libmain.so and calls its SDL_main.
-  add_library(main SHARED src/main.cpp src/game_module.cpp src/st_hooks.cpp src/st_stick.cpp src/png.cpp src/android_bridge.cpp
-              src/gl_present.cpp src/gles_compat.cpp)
-  target_include_directories(main PRIVATE src)
+  add_library(main SHARED src/main.cpp src/game_module.cpp src/st_hooks.cpp src/st_stick.cpp src/st_text.cpp
+              ${ST_HD_FONT_SRC} src/png.cpp src/android_bridge.cpp src/gl_present.cpp src/gles_compat.cpp)
+  target_include_directories(main PRIVATE src ${CMAKE_SOURCE_DIR}/third_party/stb)
   target_compile_options(main PRIVATE -O2)
   target_link_libraries(main PRIVATE ntr_runtime ntr_common SDL3::SDL3-static android log
                         "$<LINK_GROUP:RESCAN,ntr_runtime,melonds_core>")
@@ -77,8 +89,9 @@ else()
 endif()
 
 # ---- the program ----
-add_executable(SpiritTracks src/main.cpp src/game_module.cpp src/st_hooks.cpp src/st_stick.cpp src/png.cpp src/gl_present.cpp src/menu.cpp)
-target_include_directories(SpiritTracks PRIVATE src)
+add_executable(SpiritTracks src/main.cpp src/game_module.cpp src/st_hooks.cpp src/st_stick.cpp src/st_text.cpp
+               ${ST_HD_FONT_SRC} src/png.cpp src/gl_present.cpp src/menu.cpp)
+target_include_directories(SpiritTracks PRIVATE src ${CMAKE_SOURCE_DIR}/third_party/stb)
 set_target_properties(SpiritTracks PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 if(ST_ROM)
   add_dependencies(SpiritTracks st_game)  # (built together, next to the program)

@@ -56,6 +56,7 @@ public class GameActivity extends SDLActivity {
         args.add(textures[Math.max(0, Math.min(2, prefs.getInt("textures", 0)))]);
         args.add("--fixes");
         args.add("0");
+        if (prefs.getBoolean("hd_text", false)) args.add("--hd-text");
         return args.toArray(new String[0]);
     }
 
@@ -85,11 +86,36 @@ public class GameActivity extends SDLActivity {
         runOnUiThread(this::applyOrientation);
     }
 
+    /** Ask for a display mode that is a whole multiple of 60 Hz while the game is on screen. The DS runs at ~60 fps;
+     *  on a 90 Hz panel (adaptive phones go there while the screen is touched) a 60 fps game judders, or Android caps
+     *  it at 45 (seen on a Moto G Stylus 2025). The highest multiple of 60 is preferred (120 Hz: every frame shows for
+     *  exactly two refreshes, and a frame that runs late waits only 8.3 ms, where a plain 60 Hz mode makes it wait a
+     *  whole 16.7 ms); without one, the mode closest to 60 Hz. Same resolution as the current mode; Android switches
+     *  back when the game leaves the screen. (Phantom Hourglass's GameActivity does the same.) */
+    private void prefer60Hz() {
+        if (Build.VERSION.SDK_INT < 23) return;
+        android.view.Display display = getWindowManager().getDefaultDisplay();
+        android.view.Display.Mode current = display.getMode(), best = null, closest = null;
+        for (android.view.Display.Mode m : display.getSupportedModes()) {
+            if (m.getPhysicalWidth() != current.getPhysicalWidth() || m.getPhysicalHeight() != current.getPhysicalHeight()) continue;
+            float hz = m.getRefreshRate(), multiple = hz / 60f;
+            boolean of60 = multiple >= 0.99f && Math.abs(multiple - Math.round(multiple)) < 0.01f;
+            if (of60 && (best == null || hz > best.getRefreshRate())) best = m;
+            if (closest == null || Math.abs(hz - 60f) < Math.abs(closest.getRefreshRate() - 60f)) closest = m;
+        }
+        if (best == null) best = closest;
+        if (best == null) return;
+        WindowManager.LayoutParams lp = getWindow().getAttributes();
+        lp.preferredDisplayModeId = best.getModeId();
+        getWindow().setAttributes(lp);
+    }
+
     @Override
     protected void onCreate(Bundle state) {
         setRequestedOrientation(portrait() ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
                                            : ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        prefer60Hz();
         if (Build.VERSION.SDK_INT >= 28) {
             getWindow().getAttributes().layoutInDisplayCutoutMode =
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
@@ -113,6 +139,7 @@ public class GameActivity extends SDLActivity {
         pad.setMenu(menu);
         // The display choices kept from last time.
         StInput.nativeSetSmooth(prefs.getBoolean("smooth", false));
+        StInput.nativeSetHdText(prefs.getBoolean("hd_text", false));
         StInput.nativeSetFps(false);  // (the phone's counter is the FpsBadge, not drawn in the picture)
         setFpsShown(prefs.getBoolean("fps", false));
         StInput.nativeSetStretch(prefs.getBoolean("stretch", false));

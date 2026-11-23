@@ -25,8 +25,20 @@ public final class StInput {
     /** Which screen(s) to show: SCREEN_TOUCH, SCREEN_TOP or SCREEN_BOTH. */
     public static native void nativeShowScreen(int screen);
 
+    /** The minimap's rectangle in the window, in pixels (w 0: no minimap): the screen not shown is drawn there. */
+    public static native void nativeSetMap(int x, int y, int w, int h);
+
+    /** The game shows no HUD now (a cutscene): the minimap is not drawn, nor its frame. */
+    public static native boolean nativeMapHidden();
+
+    /** How far up (pixels, negative) the minimap is drawn this frame: a text box is under its place. */
+    public static native int nativeMapOffset();
+
     /** The picture filter: smooth (on) or sharp pixels (off). */
     public static native void nativeSetSmooth(boolean on);
+
+    /** Render dialogue text with a smooth vector font at screen resolution. */
+    public static native void nativeSetHdText(boolean on);
 
     /** The FPS counter in the corner of the picture. */
     public static native void nativeSetFps(boolean on);

@@ -12,7 +12,9 @@
     "roms"
   ],
   "roms": {
-    "1f0921b5e99db9d92d24710f1b004e4f3c997b73": "USA (clean)"
+    "1f0921b5e99db9d92d24710f1b004e4f3c997b73": "USA (clean)",
+    "6a63d88702c34da626e273dfca4931d52ac4551b": "USA (D-pad patch)",
+    "6896c1db2b3a725cb991f711a875fc2228b7620e": "USA (D-pad + QoL patch)"
   },
   "variants": [
     {

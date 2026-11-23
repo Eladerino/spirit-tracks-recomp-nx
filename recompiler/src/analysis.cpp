@@ -207,10 +207,14 @@ Analysis analyze(const Program& program) {
         out.functions[i].encrypted = s.dsprot;
         out.functions[i].extent = s.size;
     }
+    // A hook on a function that is not listed (e.g. one a ROM patch added) is placed once discovery has found it,
+    // below. Only `before` and `instead` hooks can wait: a `replace` hook changes how the function is explored.
+    std::vector<const Hook*> later;
     for (const Hook& h : program.config.hooks) {
         auto it = out.index.find({h.module, h.addr});
         if (it == out.index.end()) {
-            out.warnings.push_back("hook target is not a known function: " + hex(h.addr));
+            if (h.instead || h.before) later.push_back(&h);
+            else out.warnings.push_back("hook target is not a known function: " + hex(h.addr));
             continue;
         }
         Function& f = out.functions[it->second];
@@ -231,6 +235,15 @@ Analysis analyze(const Program& program) {
     size_t known = out.functions.size();
     for (size_t i = 0; i < known; i++) b.explore(i);
     drain();
+    for (const Hook* h : later) {
+        auto it = out.index.find({h->module, h->addr});
+        if (it == out.index.end()) {
+            out.warnings.push_back("hook target is not a known function: " + hex(h->addr));
+            continue;
+        }
+        Function& f = out.functions[it->second];
+        (h->instead ? f.hook_instead : f.hook_before) = h->replacement;
+    }
     out.discovered = out.functions.size() - seeds;
     return out;
 }

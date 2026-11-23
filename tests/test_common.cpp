@@ -69,6 +69,12 @@ static void test_known_roms() {
             CHECK(r.size != 0 && std::strlen(r.crc32_hex) == 8 && std::string(r.game_code) == "BKIE");
         }
     CHECK(patched <= 2);
+    // Clean, D-pad and D-pad + QoL are all listed by SHA-1 as BKIE: one build plays all three (main.cpp).
+    for (const char* hex : {"1f0921b5e99db9d92d24710f1b004e4f3c997b73", "6a63d88702c34da626e273dfca4931d52ac4551b",
+                            "6896c1db2b3a725cb991f711a875fc2228b7620e"}) {
+        const ntr::KnownRom* r = ntr::find_known_rom(digest_of(hex));
+        CHECK(r && std::string(r->game_code) == "BKIE" && r->supported);
+    }
     const std::vector<uint8_t> junk(64, 0);
     CHECK(!ntr::find_known_rom(std::span<const uint8_t>(junk)));
     CHECK(!ntr::find_known_rom(digest_of("0000000000000000000000000000000000000000")));

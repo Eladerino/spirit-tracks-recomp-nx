@@ -125,6 +125,11 @@ final class StMenu {
             StInput.nativeSetSmooth(i == 1);
             refresh();
         }, null);
+        toggle(list, "HD text", "Renders dialogue text with a smooth vector font at screen resolution.",
+                prefs.getBoolean("hd_text", false), on -> {
+                    prefs.edit().putBoolean("hd_text", on).apply();
+                    StInput.nativeSetHdText(on);
+                });
         list.addView(label("Picture size", "Fit keeps the DS's shape; Stretch fills the whole screen (the controls sit "
                 + "over the picture)."));
         chips(list, new String[] {"Fit", "Stretch"}, prefs.getBoolean("stretch", false) ? 1 : 0, i -> {
@@ -222,7 +227,8 @@ final class StMenu {
             pad.setWide(mode);
             refresh();
         }, new boolean[] {true, wideAvailable, wideAvailable});
-        // (No "Analog stick" here yet: it needs Link's touch state in Spirit Tracks, not found yet; frontend/src/st_stick.cpp.)
+        toggle(list, "Analog stick", "In place of the D-pad, like the 3DS's circle pad: Link walks the way you push it, "
+                + "running at the rim. A controller's left stick does the same.", pad.stickMode(), pad::setStickMode);
         row(list, "Move and resize controls", () -> {
             close();
             pad.startEditing();

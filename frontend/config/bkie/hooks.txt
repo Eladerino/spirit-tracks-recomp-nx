@@ -13,10 +13,30 @@ main 0202708c replace ntr_nitro_init_context   # OS_InitContext (OS_func_0062)
 
 # Widescreen: the projection's aspect ratio, in NitroSDK's G3i_PerspectiveW_ (r2 = aspect, 0x1555 = 4:3). Unnamed in
 # the decomp; matched to Phantom Hourglass's (0x02005bfc): the same arguments, the hardware divider, the same scaling.
-main 02022bcc before st_perspective_aspect      # G3i_PerspectiveW_
+main 02022bcc before st_perspective_aspect      # MTX_PerspectiveW (G3i_PerspectiveW_)
+# ...but the camera builds that matrix only when its field of view changes, and loads it every frame: the aspect is
+# also set on the way into the geometry engine (st_hooks.cpp).
+main 020249ec before st_load_mtx44              # G3_LoadMtx44
 
 # IRQ dispatch: enters OS_IrqHandler_ThreadSwitch explicitly (frontend/src/st_hooks.cpp).
 itcm 01ffbd70 replace st_os_irq_handler        # OS_IrqHandler
+
+# The analog stick (frontend/src/st_stick.hpp): the D-pad patch's movement routine, present in a build made from a
+# patched ROM (the clean ROM's build has no function here: the recompiler only warns).
+main 02044b28 instead st_stick_move            # (D-pad patch v0.9c) movement from the held D-pad
+
+# Optional HD vector text (frontend/src/st_text.cpp, from Phantom Hourglass's): the OBJ text canvases, their glyphs and
+# where their boxes are drawn. The SDK routines are named by zeldaret/st; func_02009b18 matches Phantom Hourglass's
+# NNS_G2dApplyOamManagerToProxy; the text object is UnkSystem2_UnkSubSystem11_Derived1 (overlay 0).
+main 02008b58 before  st_text_obj_init         # NNS_G2dCharCanvasInitForOBJ1D
+ov000 02062124 before st_text_obj_deinit       # UnkSystem2_UnkSubSystem11_Derived1: release (func_ov000_02062144)
+main 02008590 before  st_text_clear            # ClearContinuous (an OBJ canvas's whole clear)
+ov000 02061e98 before st_text_obj_clear        # UnkSystem2_UnkSubSystem11_Base::vfunc_0C: fills the canvas (next page)
+main 020087f8 before  st_text_clear_area       # ClearArea1D
+main 02008a0c instead st_text_draw_char        # NNS_G2dCharCanvasDrawChar
+ov000 0206214c before st_text_obj_draw         # UnkSystem2_UnkSubSystem11_Derived1: draw (func_ov000_0206216c)
+ov000 02062208 before st_text_obj_draw         # ...its clipped draw (func_ov000_02062228; reached through a pointer)
+main 02009b18 before  st_text_oam_flush        # func_02009b18 (NNS_G2dApplyOamManagerToProxy)
 
 # DS Protect (overlay 1, encrypted in the ROM): report a genuine cartridge (frontend/src/st_hooks.cpp).
 ov001 020c0e14 replace st_dsprot_detect        # DSProt_DetectFlashcart

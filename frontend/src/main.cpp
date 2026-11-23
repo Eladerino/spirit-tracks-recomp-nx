@@ -18,7 +18,7 @@
 //   SpiritTracks.exe <rom.nds> [--save-file F] [--data-dir D] [--input-script S] [--exit-after-frames N]
 //                        [--fullscreen] [--unpaced] [--module M] [--read-only-save] [--renderer software|compute|opengl]
 //                        [--scale 2|4|6|8] [--continue] [--wide] [--wide21] [--textures pixels|smooth|sharp]
-//                        [--fixes 0-3]
+//                        [--fixes 0-3] [--hd-text]
 #include <SDL3/SDL.h>
 #ifdef __ANDROID__
 #include <SDL3/SDL_main.h>  // (SDL's Android activity calls SDL_main in libmain.so)
@@ -49,8 +49,10 @@
 #include "ntr/rom.hpp"
 #include "ntr/runtime.hpp"
 #include "pad_input.hpp"
+#include "perf_hint.hpp"
 #include "st_stick.hpp"
 #include "st_hooks.hpp"
+#include "st_text.hpp"
 #include "png.hpp"
 #include "gl_present.hpp"
 #ifndef __ANDROID__
@@ -84,6 +86,10 @@ std::atomic<int> compute{-1};
 std::atomic<bool> compute_failed{false};
 std::atomic<bool> resume_done{false};
 std::atomic<int> wide_mode{-1};
+std::atomic<int> hd_text{-1};
+std::atomic<int> map_x{0}, map_y{0}, map_w{0}, map_h{0};
+std::atomic<bool> map_hidden{false};
+std::atomic<int> map_dy{0};
 }  // namespace st::pad
 
 namespace {
@@ -167,6 +173,7 @@ struct Settings {
     int wide_mode = 1;    // 1: 16:9, 2: 21:9
     int textures = 0;     // the 3D's textures with the GPU renderer: 0 the DS's pixels, 1 smooth, 2 sharp
     int fixes = 0;        // 3D fixes, bits: 1 fewer seams (GPU renderer's better polygons), 2 stable textures (no warp)
+    bool hd_text = false; // render OBJ dialogue text with an embedded vector TrueType font
 };
 
 Settings load_settings(const fs::path& p) {
@@ -191,6 +198,7 @@ Settings load_settings(const fs::path& p) {
         else if (k == "wide_mode") s.wide_mode = std::clamp(std::atoi(v.c_str()), 1, 2);
         else if (k == "textures") s.textures = std::clamp(std::atoi(v.c_str()), 0, 2);
         else if (k == "fixes") s.fixes = std::clamp(std::atoi(v.c_str()), 0, 3);
+        else if (k == "hd_text") s.hd_text = v == "1";
     }
     if (std::find(std::begin(kScales), std::end(kScales), s.scale) == std::end(kScales)) s.scale = 4;
     return s;
@@ -215,6 +223,7 @@ void save_settings(const fs::path& p, const Settings& s) {
     f << "wide_mode=" << s.wide_mode << "\n";
     f << "textures=" << s.textures << "\n";
     f << "fixes=" << s.fixes << "\n";
+    f << "hd_text=" << (s.hd_text ? 1 : 0) << "\n";
 }
 
 ntr::VideoSettings video_for(const Settings& s) {
@@ -226,7 +235,8 @@ ntr::VideoSettings video_for(const Settings& s) {
 #endif
     v.wide_extra = s.gpu && s.wide ? (s.wide_mode == 2 ? kUltraWideExtra : kWideExtra) : 0;
     v.hud_edges = v.wide_extra > 0;  // the HUD at the wide picture's edges (touches on it are mapped back: to_ds)
-    v.hud_sides = false;             // (Phantom Hourglass's own HUD placement)
+    v.hud_sides = v.hud_edges;       // (as Phantom Hourglass: a HUD piece moved out keeps its place under a dialogue box,
+                                     // the bands' clusters go to their side, a bar sliding out stays with the Menu button)
     v.texture_smoothing = s.textures == 1 ? ntr::TextureSmoothing::Smooth
                           : s.textures == 2 ? ntr::TextureSmoothing::Sharp : ntr::TextureSmoothing::Off;
     v.better_polygons = (s.fixes & 1) != 0;  // (seams between polygons in upscaled 3D)
@@ -433,11 +443,15 @@ public:
         int tx = s_.touch_x.load(), ty = s_.touch_y.load();
         bool blow = live && s_.blow.load();
         bool blow_sample = live && s_.blow_sample.load();
-        if (live && s_.stick_on.load()) {  // (a finger on the touch screen comes first)
-            const float sx = touching ? 0.0f : float(s_.stick_x.load()) / 1000.0f;
-            const float sy = touching ? 0.0f : float(s_.stick_y.load()) / 1000.0f;
-            int x = 0, y = 0;
-            if (stick_.touch_for(*rt_, sx, sy, x, y)) touching = true, tx = x, ty = y;
+        // The analog stick (st_stick.hpp: the game's code reads it this frame); a finger on the touch screen comes first.
+        // It also holds the D-pad direction it points to (8 ways): the D-pad patch decides from the D-pad whether Link
+        // is moving at all (its 0x02044CB8: the walk/run state), and the stick then sets the exact direction and speed.
+        if (live && s_.stick_on.load() && !touching) {
+            const float sx = float(s_.stick_x.load()) / 1000.0f, sy = float(s_.stick_y.load()) / 1000.0f;
+            st::set_stick(sx, sy);
+            held |= st::stick_dpad(sx, sy);
+        } else {
+            st::set_stick(0.0f, 0.0f);
         }
         bool quit = false;
         for (const ScriptStep& st : script_) {
@@ -517,7 +531,7 @@ public:
         if (frames_ > kResumeStaleFrames && !resume_cleared_) {
             resume_cleared_ = true;
             std::error_code ec;
-            for (const char* ext : {"state", "png", "txt"}) fs::remove(slot_file(s_.state_dir, kResumeSlot, ext), ec);
+            for (const char* ext : {"state", "png", "txt", "hdtext"}) fs::remove(slot_file(s_.state_dir, kResumeSlot, ext), ec);
             s_.states_version++;
         }
     }
@@ -536,6 +550,8 @@ public:
         if (!write_file_atomic(slot_file(s_.state_dir, slot, "state"), state))
             return s_.say("Could not write slot " + std::to_string(slot));
         if (!thumb_.empty()) st::write_png(slot_file(s_.state_dir, slot, "png").string(), thumb_.data(), kW, kH * 2);
+        // The HD text shown in its boxes (never drawn into the DS's memory: st_text.hpp), beside the state.
+        write_file_atomic(slot_file(s_.state_dir, slot, "hdtext"), st::hd_text_save());
         const std::time_t now = std::time(nullptr);
         char when[32] = "saved";
         if (const std::tm* t = std::localtime(&now)) std::strftime(when, sizeof when, "%m-%d %H:%M", t);
@@ -551,6 +567,11 @@ public:
     void on_state_loaded(bool ok, const std::string& error) override {
         const int slot = load_slot_;
         load_slot_ = 0;
+        if (ok) {
+            st::hd_text_reset();
+            if (!load_hd_text_.empty()) st::hd_text_restore(load_hd_text_);
+        }
+        load_hd_text_.clear();
         if (slot == kResumeSlot) return s_.say(ok ? "Continued from where you left off" : "Could not continue: " + error);
         s_.say(ok ? "Loaded slot " + std::to_string(slot) : "Slot " + std::to_string(slot) + " not loaded: " + error);
     }
@@ -582,6 +603,7 @@ private:
             return s_.say(slot == kResumeSlot ? std::string("Nothing to continue from")
                                               : "Slot " + std::to_string(slot) + " is empty");
         load_slot_ = slot;
+        load_hd_text_ = read_file(slot_file(s_.state_dir, slot, "hdtext"));  // (none for a state from before HD text)
         std::fprintf(stderr, "state: loading slot %d (%zu KB)\n", slot, data.size() / 1024);
         rt_->request_load_state(std::move(data));
     }
@@ -643,17 +665,65 @@ private:
         const int extra = view.wide ? frame.wide_extra : 0;  // (0 until the renderer has made the change)
         s_.wide_extra = extra;
         s_.wide_layer = frame.wide_layer;
+        std::array<st::HudMove, 32> frame_hud{};
+        int frame_hud_count = 0;
         {
             std::lock_guard<std::mutex> lock(s_.hud_mutex);
             s_.hud_count = extra ? frame.hud_moves : 0;
+            frame_hud_count = s_.hud_count;
             for (int i = 0; i < s_.hud_count; i++) {
                 const auto& m = frame.hud_move[i];
                 s_.hud[size_t(i)] = {m.x0, m.y0, m.x1, m.y1, m.dx};
+                frame_hud[size_t(i)] = s_.hud[size_t(i)];
             }
         }
         const st::Views v = st::compute_views(float(w), float(h), view.layout, view.stretch, extra, frame.wide_layer);
-        if (v.top_shown) gl_->screen(frame, 0, v.top, view.smooth, extra > 0);
-        if (v.bottom_shown) gl_->screen(frame, 1, v.bottom, view.smooth, extra > 0);
+        if (v.top_shown) {
+            gl_->screen(frame, 0, v.top, view.smooth, extra > 0);
+            const bool wide_top = extra > 0 && frame.wide_layer == 0;
+            gl_->draw_hd_text(0, v.top, wide_top ? extra : 0, wide_top ? frame_hud.data() : nullptr,
+                              wide_top ? frame_hud_count : 0);
+        }
+        if (v.bottom_shown) {
+            gl_->screen(frame, 1, v.bottom, view.smooth, extra > 0);
+            const bool wide_bot = extra > 0 && frame.wide_layer == 1;
+            gl_->draw_hd_text(1, v.bottom, wide_bot ? extra : 0, wide_bot ? frame_hud.data() : nullptr,
+                              wide_bot ? frame_hud_count : 0);
+        }
+        // The minimap: the screen not shown, small, where the phone's pad put it (st::pad::map_*), like a game's
+        // corner map. The same picture as that screen would show, kept to its own shape inside the rectangle.
+        // (Hidden while the game shows no HUD for half a second: cutscenes. DsPad hides its frame too.)
+        st::pad::map_hidden.store(frame.hud_absent >= 30);
+        if (v.top_shown != v.bottom_shown && st::pad::map_w.load() > 0 && st::pad::map_h.load() > 0 && frame.hud_absent < 30) {
+            const int layer = v.top_shown ? 1 : 0;
+            const int layer_extra = layer == frame.wide_layer ? extra : 0;
+            const float aspect = (256.0f + 2.0f * float(layer_extra)) / 192.0f;
+            const float bx = float(st::pad::map_x.load()), by = float(st::pad::map_y.load());
+            const float bw = float(st::pad::map_w.load()), bh = float(st::pad::map_h.load());
+            st::Rect r{bx, by, bw, bh};
+            if (bw / bh > aspect) r.w = bh * aspect, r.x = bx;  // (anchored to the corner it sits in: left and bottom)
+            else r.h = bw / aspect, r.y = by + bh - r.h;
+            // A text box under it (dialogue, a choice): the minimap goes up, just above the highest such box.
+            {
+                const st::Rect& main_r = v.top_shown ? v.top : v.bottom;
+                const int main_layer = v.top_shown ? 0 : 1;
+                const int main_extra = main_layer == frame.wide_layer ? extra : 0;
+                const float mx = main_r.w / (256.0f + 2.0f * float(main_extra)), my = main_r.h / 192.0f;
+                std::vector<st::TextBox> boxes;
+                st::text_boxes(main_layer, boxes);
+                float bottom = r.y + r.h;
+                for (const st::TextBox& b : boxes) {
+                    const float x0 = main_r.x + (b.x0 + float(main_extra)) * mx, x1 = main_r.x + (b.x1 + float(main_extra)) * mx;
+                    const float y0 = main_r.y + b.y0 * my, y1 = main_r.y + b.y1 * my;
+                    if (x0 < r.x + r.w && x1 > r.x && y0 < bottom && y1 > r.y) bottom = std::min(bottom, y0 - 6.0f);
+                }
+                const float dy = std::min(0.0f, std::max(bottom - r.h, 0.0f) - r.y);
+                r.y += dy;
+                st::pad::map_dy.store(int(std::lround(dy)));
+            }
+            gl_->screen(frame, layer, r, view.smooth, extra > 0);
+            gl_->draw_hd_text(layer, r, layer_extra, layer_extra ? frame_hud.data() : nullptr, layer_extra ? frame_hud_count : 0);
+        }
         // Frames per second: the game's frames shown, counted over a second.
         if (count_game_frame) fps_frames_++;
         if (count_game_frame) if (const uint64_t now = SDL_GetTicks(); now - fps_since_ >= 1000) {
@@ -715,6 +785,7 @@ private:
             ms.textures = view.textures;
             ms.fixes = view.fixes;
             ms.compute = view.compute;
+            ms.hd_text = view.hd_text;
             const int layer = view.layout == Layout::Top ? 0 : 1;  // the screen the player looks at
             menu.draw(*gl_, ms, float(w), float(h), ui, float(st::pad::game_fps10.load()) / 10.0f,
                       [&](int slot, const st::Rect& r) { gl_->thumbnail(slot, layer, r); });
@@ -729,15 +800,25 @@ private:
     void pace() {
         using clock = std::chrono::steady_clock;
         const auto now = clock::now();
+        // This frame's work (emulating and drawing) ran from the end of the last wait until now: tell Android, so it
+        // keeps the cores fast enough for the deadline (perf_hint.hpp). Not during fast-forward or a pause.
+        perf_hint_.start(int64_t(kFrameSeconds * 1e9));
+        if (work_start_.time_since_epoch().count() != 0 && !s_.paused.load() && !s_.fast_forward.load())
+            perf_hint_.report(std::chrono::duration_cast<std::chrono::nanoseconds>(now - work_start_).count());
         if (unpaced_ || s_.fast_forward.load()) {
             next_ = now;
+            work_start_ = clock::now();
             return;
         }
         const auto period = std::chrono::duration_cast<clock::duration>(std::chrono::duration<double>(kFrameSeconds));
         if (next_.time_since_epoch().count() == 0 || now - next_ > std::chrono::milliseconds(100)) next_ = now;
         next_ += period;
         if (next_ > now) SDL_DelayPrecise(uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(next_ - now).count()));
+        work_start_ = clock::now();
     }
+
+    st::PerfHint perf_hint_;
+    std::chrono::steady_clock::time_point work_start_{};  // when this frame's work began (the end of the last wait)
 
     Shared& s_;
     SDL_Window* window_;  // (the window the game thread draws to)
@@ -749,6 +830,7 @@ private:
     ntr::Frame last_{};  // (a copy: the runtime's goes when on_frame returns)
     bool have_last_ = false;
     int save_slot_ = 0, load_slot_ = 0;  // a save or load under way
+    std::vector<uint8_t> load_hd_text_;  // the HD text saved beside the state being loaded (st_text.hpp)
     bool continue_ = false, resume_ = false;  // (set_resume)
     bool resume_cleared_ = false;  // the resume state was deleted as older than a cartridge save
     bool resume_pending_ = false;  // the resume state was asked for while another state was being saved
@@ -758,7 +840,6 @@ private:
     uint64_t fps_since_ = 0, fps_frames_ = 0;  // (the FPS counter)
     std::chrono::steady_clock::time_point next_{};
     st::GlPresenter* gl_ = nullptr;  // (null: the phone's fallback, the main thread draws)
-    st::Stick stick_;
 #ifndef __ANDROID__
     int thumbs_version_ = -1;  // the slot pictures in gl_ (states_version)
     std::array<std::string, kSlots> times_{};
@@ -901,7 +982,7 @@ int main(int argc, char** argv) {
     fs::path rom_path, save_path, data_dir, script_path, module_path = st::default_module_path();
     uint64_t exit_after = 0;
     bool fullscreen_arg = false, unpaced = false, read_only_save = false, continue_arg = false, wide_arg = false, wide21_arg = false;
-    bool fps_probe_arg = false;
+    bool fps_probe_arg = false, hd_text_arg = false;
     std::string renderer_arg, textures_arg;
     int scale_arg = 0, fixes_arg = -1;
     for (int i = 1; i < argc; i++) {
@@ -923,6 +1004,7 @@ int main(int argc, char** argv) {
         else if (a == "--fps-probe") fps_probe_arg = true;
         else if (a == "--textures" && has) textures_arg = argv[++i];
         else if (a == "--fixes" && has) fixes_arg = std::atoi(argv[++i]);
+        else if (a == "--hd-text") hd_text_arg = true;
         else if (a == "--no-settings") {}  // (accepted: tests never write settings anyway, see below)
         else if (!a.empty() && a[0] != '-' && rom_path.empty()) rom_path = a;
         else {
@@ -967,10 +1049,16 @@ int main(int argc, char** argv) {
     ntr::GameCode code;
     std::string error, module_rom;
     if (!st::load_game_module(module_path, code, module_rom, error)) return error_box(error), 1;
-    // The recompiled code is the code of one ROM: the clean game and the patched ones each need their own build.
-    if (module_rom != rom_sha1)
-        return error_box(module_path.string() + " was built from another ROM (SHA-1 " + module_rom + ") than " + rom_path.string() +
-                         " (" + known->region + ", SHA-1 " + rom_sha1 + "): use the ROM it was built from, or rebuild (2-BUILD.ps1)."), 1;
+    // The clean, D-pad and D-pad + QoL ROMs share one recompiled game (known_roms.cpp): the module's ARM9 code decides
+    // the D-pad controls (a module built from a patched ROM has them, with any of the three), the ROM gives the files
+    // and the ARM7 (the QoL changes). A module made from another game or an unlisted ROM is still refused.
+    const ntr::KnownRom* module_known = nullptr;
+    for (const ntr::KnownRom& r : ntr::known_roms())
+        if (*r.sha1_hex && module_rom == r.sha1_hex) module_known = &r;
+    if (!module_known || std::string(module_known->game_code) != known->game_code)
+        return error_box(module_path.string() + " was built from a ROM this program does not know (SHA-1 " + module_rom +
+                         "): rebuild it (2-BUILD.ps1) from a Spirit Tracks (USA) dump."), 1;
+    SDL_Log("ROM: %s (%s); game built from %s", known->region, rom_sha1.c_str(), module_known->region);
     std::vector<ScriptStep> script;
     if (!script_path.empty() && !load_script(script_path, script, error)) return error_box(error), 1;
 
@@ -982,6 +1070,7 @@ int main(int argc, char** argv) {
     else if (textures_arg == "smooth") settings.textures = 1;
     else if (textures_arg == "sharp") settings.textures = 2;
     if (fixes_arg >= 0 && fixes_arg <= 3) settings.fixes = fixes_arg;
+    if (hd_text_arg) settings.hd_text = true;
     if (renderer_arg == "gpu" || renderer_arg == "compute") settings.gpu = settings.compute = true;
     else if (renderer_arg == "opengl") settings.gpu = true, settings.compute = false;
     else if (renderer_arg == "software") settings.gpu = false;
@@ -991,6 +1080,7 @@ int main(int argc, char** argv) {
 #endif
     st::pad::fps = settings.fps;
     st::pad::fps_corner = settings.fps_corner;
+    st::set_hd_text_enabled(settings.hd_text);
 
     // ---- window: the largest whole multiple of the DS screen that fits the desktop with room to spare ----
     SDL_Rect usable{0, 0, 1280, 720};
@@ -1117,6 +1207,7 @@ int main(int argc, char** argv) {
         ms.textures = settings.textures;
         ms.fixes = settings.fixes;
         ms.compute = settings.compute;
+        ms.hd_text = settings.hd_text;
         return ms;
     };
     auto menu_done = [&](const st::MenuState& ms, st::MenuResult r) {
@@ -1132,6 +1223,10 @@ int main(int argc, char** argv) {
         settings.textures = ms.textures;
         settings.fixes = ms.fixes;
         settings.compute = ms.compute;
+        if (ms.hd_text != settings.hd_text) {
+            settings.hd_text = ms.hd_text;
+            st::set_hd_text_enabled(settings.hd_text);
+        }
         if (ms.fullscreen != settings.fullscreen) set_fullscreen(ms.fullscreen);
         st::pad::fps = settings.fps;
         st::pad::fps_corner = settings.fps_corner;
@@ -1273,6 +1368,11 @@ int main(int argc, char** argv) {
         bool changed = false;
         if (const int want = st::pad::show.exchange(-1); want >= 0 && want <= 2) settings.layout = Layout(want), changed = true;
         if (const int want = st::pad::smooth.exchange(-1); want >= 0) settings.smooth = want != 0, changed = true;
+        if (const int want = st::pad::hd_text.exchange(-1); want >= 0) {
+            settings.hd_text = want != 0;
+            st::set_hd_text_enabled(settings.hd_text);
+            changed = true;
+        }
         if (const int want = st::pad::stretch.exchange(-1); want >= 0) settings.stretch = want != 0, changed = true;
         bool video = false;
         if (const int want = st::pad::wide_mode.exchange(-1); want >= 0 && want <= 2) {

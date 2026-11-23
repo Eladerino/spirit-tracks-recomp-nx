@@ -1,81 +1,84 @@
 #include "st_stick.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
-#include <cstdio>
-#include <cstdlib>
+#include <cstring>
 
 #include "ntr/runtime.hpp"
 
 namespace st {
 namespace {
 
-// Phantom Hourglass's PlayerControl* gPlayerControl (zeldaret/ph). Spirit Tracks's equivalent is not found yet
-// (zeldaret/st has no PlayerControl), so the stick is off: 0 is never main RAM, and touch_for() never touches.
-// TODO(st): find Link's touch state in BKIE and fill these in; then show the stick in the menus again.
-constexpr uint32_t kPlayerControl = 0;
-// PlayerControl's fields in Phantom Hourglass (include/Player/PlayerControl.hpp, TouchControl.hpp).
-constexpr uint32_t kTouchX = 0x10, kTouchY = 0x14;  // s32, DS pixels
-constexpr uint32_t kTouchDist = 0x58;               // q20 (4096 = 1 pixel): from the touch to Link
-constexpr uint32_t kTouchAngle = 0x6A;              // s16: 0 down, 0x4000 right, 0x8000 up, 0xC000 left
-constexpr uint32_t kMoveAllowed = 0x7C;             // u8 mUnk_7c: the stylus moves Link this frame
+std::atomic<int> g_x{0}, g_y{0};  // the stick, -1000..1000 (y down)
+
+// BKIE (USA), the D-pad patch v0.9c (its routines at 0x02044B00..0x02044D78, read from the patched ARM9):
+constexpr uint32_t kInputPtr = 0x0204AEDC;   // 0x0204A0F0 + 3564: the game's input; held buttons at +288
+constexpr uint32_t kHeldOffset = 288;
+constexpr uint32_t kCameraYaw = 0x02078678;  // UnkStruct_027e09bc_0C::func_ov000_02078698 (r0 = the camera, r8 here)
+// UnkStruct_027e0ce0_40_Base_14 (r4 here; zeldaret/st include/Unknown/UnkStruct_027e0ce0.hpp):
+constexpr uint32_t kDist = 0x3C;      // mUnk_3C: the stylus's distance from Link, fx32 pixels
+constexpr uint32_t kUnk40 = 0x40;     // mUnk_40, mUnk_5C: cleared, as the patch does
+constexpr uint32_t kUnk5C = 0x5C;
+constexpr uint32_t kAngle = 0x44;     // mUnk_44, mUnk_46: the direction
+constexpr uint32_t kAngle2 = 0x46;
+constexpr uint32_t kSelect = 0x0004, kY = 0x0800;  // DS keys (held)
 
 constexpr float kDeadZone = 0.22f;
-constexpr float kNear = 22.0f, kFar = 80.0f;  // the stylus's distance from Link: just past the game's 20-pixel dead
-                                              // zone (a slow walk) to a run
-
-bool in_main_ram(uint32_t a) { return a >= 0x02000000u && a < 0x02400000u; }
+// The patch's distances (fx32 pixels): 0x60000 = 96 for Y + D-pad (walk), 0x5F0000 = 1520 for the D-pad (run).
+// Measured on the phone (2026-11-22, 2 s pushes from one spot): 77 does not move Link, 224 and more run as far as the
+// D-pad. So the stick walks from 96 up to 200 over most of its travel and runs (the patch's 1520) at the rim.
+constexpr float kWalkTop = 200.0f, kRun = 1520.0f, kWalkY = 96.0f;
+constexpr float kRunFrom = 0.8f;  // (of the travel past the dead zone)
 
 }  // namespace
 
-bool Stick::touch_for(const ntr::Runtime& rt, float x, float y, int& tx, int& ty) {
-    const float mag = std::min(1.0f, std::hypot(x, y));
-    const uint32_t pc = rt.peek32(kPlayerControl);
-    const bool allowed = in_main_ram(pc) && (rt.peek32(pc + kMoveAllowed) & 0xFF) != 0;
+void set_stick(float x, float y) {
+    g_x.store(int(std::clamp(x, -1.0f, 1.0f) * 1000.0f), std::memory_order_relaxed);
+    g_y.store(int(std::clamp(y, -1.0f, 1.0f) * 1000.0f), std::memory_order_relaxed);
+}
 
-    // Where Link is: the last touch the game saw, its distance from Link and the angle between them. Which way the
-    // angle points (touch to Link or Link to touch) is told apart by which answer stays near the last one, and then
-    // kept once it has agreed for a while.
-    if (holding_ && in_main_ram(pc)) {
-        const int gx = int(rt.peek32(pc + kTouchX)), gy = int(rt.peek32(pc + kTouchY));
-        const float dist = float(int32_t(rt.peek32(pc + kTouchDist))) / 4096.0f;
-        const int16_t angle = int16_t(rt.peek32(pc + (kTouchAngle & ~3u)) >> (8 * (kTouchAngle & 3u)));
-        const bool sane = gx >= 0 && gx < 256 && gy >= 0 && gy < 192 && dist > 0.5f && dist < 400.0f &&
-                          std::abs(gx - last_tx_) <= 2 && std::abs(gy - last_ty_) <= 2;
-        if (sane) {
-            const float a = float(angle) * (6.2831853f / 65536.0f);
-            const float dx = std::sin(a) * dist, dy = std::cos(a) * dist;
-            const float ax = float(gx) - dx, ay = float(gy) - dy;  // the angle points from Link to the touch
-            const float bx = float(gx) + dx, by = float(gy) + dy;  // from the touch to Link
-            int pick = sense_;
-            if (pick == 0) {
-                const float da = std::hypot(ax - link_x_, ay - link_y_), db = std::hypot(bx - link_x_, by - link_y_);
-                pick = da <= db ? 1 : 2;
-                votes_ = pick == last_pick_ ? votes_ + 1 : 1;
-                last_pick_ = pick;
-                if (votes_ >= 30) {
-                    sense_ = pick;
-                    std::fprintf(stderr, "stick: the game's touch angle points %s\n",
-                                 pick == 1 ? "from Link to the touch" : "from the touch to Link");
-                }
-            }
-            link_x_ = pick == 1 ? ax : bx;
-            link_y_ = pick == 1 ? ay : by;
-        }
-    }
-
-    if (mag < kDeadZone || !allowed) {
-        holding_ = false;
-        return false;
-    }
-    const float r = kNear + (mag - kDeadZone) / (1.0f - kDeadZone) * (kFar - kNear);
-    const float px = std::clamp(link_x_, 16.0f, 240.0f) + x / mag * r;
-    const float py = std::clamp(link_y_, 16.0f, 176.0f) + y / mag * r;
-    tx = std::clamp(int(std::lround(px)), 4, 251);
-    ty = std::clamp(int(std::lround(py)), 4, 187);
-    holding_ = true;
-    last_tx_ = tx, last_ty_ = ty;
-    return true;
+uint32_t stick_dpad(float x, float y) {
+    const float mag = std::hypot(x, y);
+    if (mag < kDeadZone) return 0;
+    constexpr float kSin22 = 0.3827f;  // (8 sectors of 45 degrees)
+    uint32_t bits = 0;
+    if (x / mag > kSin22) bits |= ntr::KeyRight;
+    if (x / mag < -kSin22) bits |= ntr::KeyLeft;
+    if (y / mag > kSin22) bits |= ntr::KeyDown;
+    if (y / mag < -kSin22) bits |= ntr::KeyUp;
+    return bits;
 }
 
 }  // namespace st
+
+extern "C" int st_stick_move(NtrCpu* c) {
+    const float x = float(st::g_x.load(std::memory_order_relaxed)) / 1000.0f;
+    const float y = float(st::g_y.load(std::memory_order_relaxed)) / 1000.0f;
+    const float mag = std::min(1.0f, std::hypot(x, y));
+    if (mag < st::kDeadZone) return 0;
+    const uint32_t input = ntr_rd32(c, st::kInputPtr);
+    const uint32_t held = (input >= 0x02000000u && input < 0x02400000u) ? ntr_rd32(c, input + st::kHeldOffset) : 0;
+    if (held & st::kSelect) return 0;
+
+    // The camera's yaw, as the patch asks for it (the call may change any register: they are put back after).
+    uint32_t saved[16];
+    std::memcpy(saved, c->r, sizeof saved);
+    c->r[0] = c->r[8];
+    ntr_call(c, st::kCameraYaw);
+    const uint32_t yaw = c->r[0];
+    std::memcpy(c->r, saved, sizeof saved);
+
+    const float t = (mag - st::kDeadZone) / (1.0f - st::kDeadZone);
+    float dist = t >= st::kRunFrom ? st::kRun : st::kWalkY + (t / st::kRunFrom) * (st::kWalkTop - st::kWalkY);
+    if (held & st::kY) dist = std::min(dist, st::kWalkY);
+    const int32_t dir = int32_t(std::lround(std::atan2(x, y) * (65536.0 / 6.283185307179586)));
+    const uint32_t angle = (yaw + uint32_t(dir)) & 0xFFFFu;
+    const uint32_t obj = c->r[4];
+    ntr_wr32(c, obj + st::kDist, uint32_t(std::lround(dist * 4096.0f)));
+    ntr_wr16(c, obj + st::kAngle, angle);
+    ntr_wr16(c, obj + st::kUnk40, 0);
+    ntr_wr16(c, obj + st::kUnk5C, 0);
+    ntr_wr16(c, obj + st::kAngle2, angle);
+    return 1;
+}

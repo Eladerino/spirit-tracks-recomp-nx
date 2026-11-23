@@ -13,7 +13,7 @@ constexpr uint32_t kShade = 0x55000000, kPanel = 0xF0181820, kRow = 0xFF2A2A34, 
                    kAccent = 0xFF8AB4FF, kWhite = 0xFFFFFFFF, kHint = 0xFF9090A0, kOff = 0xFF606068,
                    kEmpty = 0xFF121218;
 
-enum RowId { kScreen, kRenderer, kResolution, kTextures, kFixes, kPicture, kSize, kWide, kFps, kFullscreen, kStick, kContinue, kQuit,
+enum RowId { kScreen, kRenderer, kResolution, kTextures, kFixes, kPicture, kHdText, kSize, kWide, kFps, kFullscreen, kStick, kContinue, kQuit,
              kRowCount };
 constexpr int kScales[] = {2, 4, 6, 8};
 constexpr int kColumns = 4;  // of the save state slots
@@ -51,13 +51,13 @@ Menu::Geometry Menu::geometry(const MenuState& s, float win_w, float win_h, floa
     // (Seams: the GPU renderer's better polygons. Warp: textures the DS bends with the view, cut into a grid.)
     r[kFixes] = {"3D fixes", {"Off", "Seams", "Warp", "Both"}, s.gpu ? s.fixes : s.fixes & 2, {true, s.gpu, true, s.gpu}, {}, {}};
     r[kPicture] = {"Picture", {"Sharp", "Smooth"}, s.smooth ? 1 : 0, {true, true}, {}, {}};
+    r[kHdText] = {"HD text", {"Off", "On"}, s.hd_text ? 1 : 0, {true, true}, {}, {}};
     r[kSize] = {"Picture size", {"Fit", "Stretch"}, s.stretch ? 1 : 0, {true, true}, {}, {}};
     r[kWide] = {"Widescreen (test)", {"4:3", "16:9"}, s.wide && s.gpu ? 1 : 0, {true, s.gpu}, {}, {}};
     r[kFps] = {"FPS counter", {"Off", "Top L", "Top R", "Bot L", "Bot R"}, s.fps ? s.fps_corner + 1 : 0,
                {true, true, true, true, true}, {}, {}};
     r[kFullscreen] = {"Fullscreen", {"Off", "On"}, s.fullscreen ? 1 : 0, {true, true}, {}, {}};
-    // (Analog: not yet in Spirit Tracks, frontend/src/st_stick.cpp.)
-    r[kStick] = {"Gamepad's left stick", {"D-pad", "Analog"}, 0, {true, false}, {}, {}};
+    r[kStick] = {"Gamepad's left stick", {"D-pad", "Analog"}, s.stick ? 1 : 0, {true, true}, {}, {}};
     r[kContinue] = {"", {s.resume_time.empty() ? std::string("Continue: nothing yet") : "Continue from " + s.resume_time},
                     -1, {!s.resume_time.empty()}, {}, {}};
     r[kQuit] = {"", {"Quit the game"}, -1, {true}, {}, {}};
@@ -118,6 +118,7 @@ MenuResult Menu::choose(int row, int choice, MenuState& s) {
             s.fixes = choice;
             break;
         case kPicture: s.smooth = choice == 1; break;
+        case kHdText: s.hd_text = choice == 1; break;
         case kSize: s.stretch = choice == 1; break;
         case kWide:
             if (choice == 1 && !s.gpu) return MenuResult::None;
@@ -128,7 +129,7 @@ MenuResult Menu::choose(int row, int choice, MenuState& s) {
             if (choice) s.fps_corner = choice - 1;
             break;
         case kFullscreen: s.fullscreen = choice == 1; break;
-        case kStick: s.stick = false; break;  // (see geometry())
+        case kStick: s.stick = choice == 1; break;
         case kContinue: return s.resume_time.empty() ? MenuResult::None : MenuResult::Continue;
         case kQuit: return MenuResult::Quit;
         default: return MenuResult::None;
