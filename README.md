@@ -13,13 +13,18 @@ program and Android app, set up for Spirit Tracks.
 
 *On a Moto G Stylus 2025: 21:9 widescreen, HD text, and the minimap of the top screen in the corner.*
 
+![A Spirit Tracks cutscene at 21:9 on an Android phone: the scene fills the whole width, the game's letterbox bars only above and below](docs/images/phone-21x9-cutscene.jpg)
+
+*Cutscenes in widescreen too: the scene fills the whole 21:9 width, with the game's own letterbox bars above and below.*
+
 ## Features
 
 **Picture**
 - Software, OpenGL and Compute renderers: 2x-8x on a PC, up to 4x on a phone
 - Widescreen 16:10 (Steam Deck, tablets), 16:9 and 21:9: the 3D fills the screen, actors are drawn across the whole
-  wide picture (no pop-in at the sides), the HUD (hearts, timer, Menu button, the train's lever and horn cord) sits at
-  the picture's edges and still answers touches there
+  wide picture (no pop-in at the sides), cutscenes fill it too (the game's letterbox spans the width), and the HUD
+  (hearts, timer, Menu button, the train's lever and horn cord) sits at the picture's edges and still answers touches
+  there
 - HD text: dialogue, choices and labels drawn with a vector font at the screen's own resolution, kept with save states
   (from Phantom Hourglass Recomp, by chouette-cc)
 - Sharp or smooth filtering; the DS's shape or stretched
