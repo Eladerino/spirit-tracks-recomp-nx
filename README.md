@@ -51,6 +51,8 @@ program and Android app, set up for Spirit Tracks.
 
 Tested devices, measurements and known issues: [TESTING.md](TESTING.md).
 
+Ideas and features being considered next: [docs/WISHLIST.md](docs/WISHLIST.md).
+
 ## What you need
 
 - Your own dump: *Legend of Zelda, The - Spirit Tracks (USA, Australia) (En,Fr,Es)*, SHA-1
