@@ -754,9 +754,15 @@ private:
         }
         // The minimap: the screen not shown, small, where the phone's pad put it (st::pad::map_*), like a game's
         // corner map. The same picture as that screen would show, kept to its own shape inside the rectangle.
-        // (Hidden while the game shows no HUD for half a second: cutscenes. DsPad hides its frame too.)
-        st::pad::map_hidden.store(frame.hud_absent >= 30);
-        if (v.top_shown != v.bottom_shown && st::pad::map_w.load() > 0 && st::pad::map_h.load() > 0 && frame.hud_absent < 30) {
+        // (Hidden while the game shows no HUD for half a second: cutscenes. DsPad hides its frame too. But Spirit Tracks
+        // slides its Menu button away while Link moves, so while the player moves him, by the stick, the D-pad or the
+        // touch screen, and for a second after, a missing HUD is not a cutscene: the minimap stayed hidden while running.)
+        const bool moving = s_.touching.load() || std::abs(s_.stick_x.load()) > 150 || std::abs(s_.stick_y.load()) > 150 ||
+                            (s_.held.load() & (ntr::KeyUp | ntr::KeyDown | ntr::KeyLeft | ntr::KeyRight)) != 0;
+        map_input_quiet_ = moving ? 0 : std::min(map_input_quiet_ + 1, 1000);
+        const bool map_off = frame.hud_absent >= 30 && map_input_quiet_ >= 60;
+        st::pad::map_hidden.store(map_off);
+        if (v.top_shown != v.bottom_shown && st::pad::map_w.load() > 0 && st::pad::map_h.load() > 0 && !map_off) {
             const int layer = v.top_shown ? 1 : 0;
             const int layer_extra = layer == frame.wide_layer ? extra : 0;
             const float aspect = (256.0f + 2.0f * float(layer_extra)) / 192.0f;
@@ -905,6 +911,7 @@ private:
     uint64_t fps_since_ = 0, fps_frames_ = 0;  // (the FPS counter)
     std::chrono::steady_clock::time_point next_{};
     st::GlPresenter* gl_ = nullptr;  // (null: the phone's fallback, the main thread draws)
+    int map_input_quiet_ = 1000;  // frames since the player last moved Link (the minimap's cutscene check)
 #ifndef __ANDROID__
     int thumbs_version_ = -1;  // the slot pictures in gl_ (states_version)
     std::array<std::string, kSlots> times_{};
