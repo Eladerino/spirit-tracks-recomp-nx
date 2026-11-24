@@ -2,6 +2,7 @@
 #include "stb_truetype.h"
 
 #include "st_text.hpp"
+#include "st_hooks.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -20,8 +21,6 @@ namespace {
 // NITRO-System CharCanvas at +4, the font at +32, the 2D engine at +44 (u16, 0 = A), the OBJ entries from +48 (8
 // bytes each: the attr0/attr1 word, then attr2 with the palette in bits 12..15), the number of OBJs at +208.
 // Phantom Hourglass's (UnkStruct_0203dae0) keeps its canvas at +0x10: here canvases are tracked by their own address.
-constexpr uint32_t kOamMgrEngineA = 0x0204AEFCu;  // the two OAM managers func_02009b18 is called with, A then B
-constexpr uint32_t kOamMgrEngineB = 0x0204C38Cu;
 constexpr uint32_t kTextCanvas = 4, kTextEngine = 44, kTextObj0 = 48, kTextObjAttr2 = 52, kTextObjCount = 208;
 constexpr uint32_t kDispCntA = 0x04000000u;
 constexpr uint32_t kDispCntB = 0x04001000u;
@@ -443,8 +442,8 @@ extern "C" void st_text_obj_draw(NtrCpu* c) {
 // Commits each 2D engine's pending HD text list at exact OAM flush time and resolves live OBJ palette & brightness.
 extern "C" void st_text_oam_flush(NtrCpu* c) {
     int engine = -1;
-    if (c->r[0] == st::kOamMgrEngineA) engine = 0;
-    else if (c->r[0] == st::kOamMgrEngineB) engine = 1;
+    if (c->r[0] == st::addresses().oam_mgr_a) engine = 0;  // (the two OAM managers, A then B: st_hooks.cpp)
+    else if (c->r[0] == st::addresses().oam_mgr_b) engine = 1;
     else return;
 
     const uint32_t dispcnt = ntr_rd32(c, engine == 0 ? st::kDispCntA : st::kDispCntB);

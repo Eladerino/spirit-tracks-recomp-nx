@@ -1,4 +1,4 @@
-// Spirit Tracks's hooks (frontend/config/bkie/hooks.txt): the NitroSDK routines the runtime replaces, and DS Protect.
+// Spirit Tracks's hooks (frontend/config/<code>/hooks.txt): the NitroSDK routines the runtime replaces, and DS Protect.
 #include "st_hooks.hpp"
 #include "st_text.hpp"
 
@@ -15,11 +15,12 @@
 namespace {
 // BKIE (USA). The decomp (zeldaret/st) leaves the NitroSDK ones unnamed (OS_func_00nn); each was matched to Phantom
 // Hourglass's (same SDK): the same sizes in the same order, and the same literals (ST-PORT.md, "Addresses").
-struct Addresses {
-    uint32_t os_irq_table;                  // OS_IRQTable (DTCM): the literal OS_IrqHandler loads
-    uint32_t os_irq_handler_thread_switch;  // OS_IrqHandler_ThreadSwitch (ITCM): the LR OS_IrqHandler sets
-};
-constexpr Addresses kUsa = {0x027E0198, 0x01FFBDC8};
+// BKIP (Europe, Revision 0 and 1): the same symbols in the decomp's config/eur and config/eur1 (main's bss sits 0x20
+// higher; overlay 0 differs between the two revisions). Mapped by name, not tested on a European ROM yet.
+using st::Addresses;
+constexpr Addresses kUsa = {0x027E0198, 0x01FFBDC8, 0x0204AEFC, 0x0204C38C, 0x0204AEDC, 0x02078678};
+constexpr Addresses kEur = {0x027E0198, 0x01FFBDC8, 0x0204AF1C, 0x0204C3AC, 0x0204AEFC, 0x02078698};
+constexpr Addresses kEur1 = {0x027E0198, 0x01FFBDC8, 0x0204AF1C, 0x0204C3AC, 0x0204AEFC, 0x020786CC};
 const Addresses* A = &kUsa;
 }  // namespace
 
@@ -77,9 +78,13 @@ extern "C" void st_dsprot_detect_not(NtrCpu* c) {
 
 namespace st {
 
-bool select_release(const std::string& game_code) {
-    if (game_code != "BKIE") return false;
-    A = &kUsa;
+const Addresses& addresses() { return *A; }
+
+bool select_release(const std::string& game_code, int revision) {
+    if (game_code == "BKIE") A = &kUsa;
+    else if (game_code == "BKIP" && revision == 0) A = &kEur;
+    else if (game_code == "BKIP" && revision == 1) A = &kEur1;
+    else return false;
     return true;
 }
 

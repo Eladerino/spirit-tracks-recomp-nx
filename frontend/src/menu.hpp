@@ -38,6 +38,8 @@ struct MenuState {
     int fixes = 0;             // 3D fixes, bits: 1 fewer seams (GPU renderer), 2 stable textures
     bool compute = false;      // with gpu: the compute-shader renderer (texture filtering is unavailable)
     bool hd_text = false;      // HD vector dialogue text (Inter Bold TrueType font)
+    int language = -1;         // DS firmware language: -1 auto (system locale), 1 EN, 2 FR, 3 DE, 4 IT, 5 ES
+    bool europe = false;       // a BKIP (Europe) ROM: also carries German and Italian
 };
 
 enum class MenuResult { None, Changed, Quit, SaveState, LoadState, Continue };
