@@ -28,6 +28,12 @@ program and Android app, set up for Spirit Tracks.
   ROM by default, so the D-pad controls work with the clean dump too; the QoL changes come with the QoL ROM)
 - D-pad movement and an analog stick (on-screen or a gamepad's left stick): walk with a light push, run at the rim
 - 12 save-state slots with pictures, plus Continue from where you quit
+- Language: Auto (the system's), English, French or Spanish, the three the USA ROM carries, plus German and Italian
+  with a European ROM; in the PC menu, the phone's settings, `settings.ini` or `--language` (applies at the next start
+  from the title screen, not Continue) (from Phantom Hourglass Recomp, by chouette-cc)
+- **Europe (test):** a European dump (Revision 0 or 1) builds with `-Variant eur`. Its addresses come from the
+  zeldaret/st decomp, not yet tried on a real European ROM: reports welcome. Touch controls only (the D-pad patch is
+  USA only).
 - Touch, keyboard and gamepad; microphone and Spirit Flute blow buttons (no real microphone needed)
 
 **Phone**
@@ -52,6 +58,12 @@ Tested devices, measurements and known issues: [TESTING.md](TESTING.md).
   | USA (clean) | `1f0921b5e99db9d92d24710f1b004e4f3c997b73` |
   | USA, D-pad patch v0.9c | `6a63d88702c34da626e273dfca4931d52ac4551b` |
   | USA, D-pad + QoL patch v0.9c | `6896c1db2b3a725cb991f711a875fc2228b7620e` |
+
+- Or, in test: *Legend of Zelda, The - Spirit Tracks (Europe) (En,Fr,De,Es,It)*, Revision 0
+  (`9e99cc803a14ce038eb908db585431f8254f09ee`) or Revision 1 (`dcb221a89acb894503a461c2c7d4cfdad9a06b68`,
+  `b9096f46e9163750a9e3f6c2fc0758e6094b6135`, `b0288a880498c12508e53f4373085eb88955e14b`,
+  `4efbff9a263fe622f3f7e7cfb7bea8046b86e57d` or `52d7f22255d5d86fc40d3a43c7de969e0365ff7d`), built with
+  `-Variant eur` (each script takes it, e.g. `RUN-ALL.ps1 -Variant eur`). An APK plays the revision it was built from.
 
 - Windows 10/11 64-bit, about 10 GB of disk, and an OpenGL 3.3 GPU for the GPU renderers.
 - For Android: an Android 8+ arm64 phone (OpenGL ES 3.2 for the GPU renderers) and a USB cable.
@@ -182,7 +194,7 @@ host fibers, and its anti-piracy checks (DS Protect) are answered as a genuine c
 
 Recompiler and runtime from [FFCCEOT-Recomp](https://github.com/JonathanDC64/FFCCEOT-Recomp) by JonathanDC64; DS
 hardware from [melonDS](https://github.com/melonDS-emu/melonDS); function boundaries from the
-[zeldaret/st](https://github.com/zeldaret/st) decompilation; HD text from
+[zeldaret/st](https://github.com/zeldaret/st) decompilation; HD text, the language selector and the European ROM support from
 [chouette-cc](https://github.com/chouette-cc)'s work on Phantom Hourglass Recomp; the Inter font by Rasmus Andersson.
 The D-pad and QoL patches are by d0k3 and Greiga Master / StraDaMa (not included). Details in [NOTICE.md](NOTICE.md).
 

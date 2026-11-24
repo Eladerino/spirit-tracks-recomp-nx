@@ -57,6 +57,8 @@ public class GameActivity extends SDLActivity {
         args.add("--fixes");
         args.add("0");
         if (prefs.getBoolean("hd_text", false)) args.add("--hd-text");
+        args.add("--language");
+        args.add(prefs.getString("language", "auto"));
         return args.toArray(new String[0]);
     }
 
