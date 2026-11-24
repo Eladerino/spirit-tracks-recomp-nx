@@ -757,7 +757,10 @@ private:
         // (Hidden while the game shows no HUD for half a second: cutscenes. DsPad hides its frame too. But Spirit Tracks
         // slides its Menu button away while Link moves, so while the player moves him, by the stick, the D-pad or the
         // touch screen, and for a second after, a missing HUD is not a cutscene: the minimap stayed hidden while running.)
-        const bool moving = s_.touching.load() || std::abs(s_.stick_x.load()) > 150 || std::abs(s_.stick_y.load()) > 150 ||
+        // (A touch counts only when held a quarter second, as when the stylus walks Link: a tap that moves a cutscene's
+        // text on does not bring the minimap back.)
+        map_touch_frames_ = s_.touching.load() ? std::min(map_touch_frames_ + 1, 1000) : 0;
+        const bool moving = map_touch_frames_ >= 15 || std::abs(s_.stick_x.load()) > 150 || std::abs(s_.stick_y.load()) > 150 ||
                             (s_.held.load() & (ntr::KeyUp | ntr::KeyDown | ntr::KeyLeft | ntr::KeyRight)) != 0;
         map_input_quiet_ = moving ? 0 : std::min(map_input_quiet_ + 1, 1000);
         const bool map_off = frame.hud_absent >= 30 && map_input_quiet_ >= 60;
@@ -912,6 +915,7 @@ private:
     std::chrono::steady_clock::time_point next_{};
     st::GlPresenter* gl_ = nullptr;  // (null: the phone's fallback, the main thread draws)
     int map_input_quiet_ = 1000;  // frames since the player last moved Link (the minimap's cutscene check)
+    int map_touch_frames_ = 0;    // frames the touch screen has been held (the same check)
 #ifndef __ANDROID__
     int thumbs_version_ = -1;  // the slot pictures in gl_ (states_version)
     std::array<std::string, kSlots> times_{};
