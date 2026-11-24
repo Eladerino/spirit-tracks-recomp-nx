@@ -17,8 +17,9 @@ program and Android app, set up for Spirit Tracks.
 
 **Picture**
 - Software, OpenGL and Compute renderers: 2x-8x on a PC, up to 4x on a phone
-- Widescreen 16:9 and 21:9: the 3D fills the screen, the HUD (hearts, timer, Menu button, the train's lever and horn
-  cord) sits at the picture's edges and still answers touches there
+- Widescreen 16:10 (Steam Deck, tablets), 16:9 and 21:9: the 3D fills the screen, actors are drawn across the whole
+  wide picture (no pop-in at the sides), the HUD (hearts, timer, Menu button, the train's lever and horn cord) sits at
+  the picture's edges and still answers touches there
 - HD text: dialogue, choices and labels drawn with a vector font at the screen's own resolution, kept with save states
   (from Phantom Hourglass Recomp, by chouette-cc)
 - Sharp or smooth filtering; the DS's shape or stretched
